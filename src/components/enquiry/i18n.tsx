@@ -21,7 +21,7 @@ export type Lang = "zh" | "en";
 const STORAGE_KEY = "lead-capture.lang";
 
 const zh = {
-  brandName: "锐岭工业",
+  brandName: "陕西朗昊",
   demoBadge: "演示",
   langLabel: { zh: "中", en: "EN" },
 
@@ -153,7 +153,7 @@ const zh = {
 type Bundle = typeof zh;
 
 const en: Bundle = {
-  brandName: "Ridgeline",
+  brandName: "SHAANXI LANGHAO",
   demoBadge: "DEMO",
   langLabel: { zh: "中", en: "EN" },
 

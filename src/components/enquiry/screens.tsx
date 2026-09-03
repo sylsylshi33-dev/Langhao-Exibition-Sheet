@@ -39,8 +39,8 @@ export function BrandMark() {
   const { t } = useI18n();
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-[13px] font-bold text-white">
-        R
+      <span className="flex h-8 min-w-8 items-center justify-center rounded-lg bg-slate-900 px-1.5 text-[11px] font-bold tracking-[0.04em] text-white">
+        SXLH
       </span>
       <span className="text-sm font-semibold tracking-tight text-slate-900">
         {t.brandName}
