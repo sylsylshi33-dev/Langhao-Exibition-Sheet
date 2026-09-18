@@ -46,31 +46,36 @@ for the staff dashboard (default password `langhao2026`, set in
 `src/lib/adminAuth.ts` / overridden by the `ADMIN_PASSWORD` environment
 variable — see `launcher/` for how the packaged app sets it).
 
-## Packaging for the exhibition PCs (Windows)
+## Packaging (Windows for the exhibition PCs, Mac for testing)
 
 The exhibition computers should **never need to install Node.js, run `npm
-install`, or touch a terminal.** The handoff is a folder containing:
-
-```
-Langhao-Exhibition-App/
-├── app/                        ← `next build` output (output: "standalone")
-├── node/node.exe               ← portable Node runtime, no install needed
-├── Start Exhibition App.bat    ← double-click this
-└── 使用说明.txt                 ← short Chinese instructions for staff
-```
-
-To rebuild this package after a code change:
+install`, or touch a terminal.** `next.config.ts` sets `output: "standalone"`
+so the built app is a minimal, self-contained server bundle that only needs
+a Node binary next to it — nothing installed on the target machine.
 
 ```bash
-npm run build                                   # produces .next/standalone
-# copy .next/standalone + public/ + .next/static into Langhao-Exhibition-App/app
-# (see the packaging steps used when this was last built, or ask for the
-#  packaging script to be regenerated)
+./scripts/package-windows.sh   # → launcher/dist/Langhao-Exhibition-App.zip
+./scripts/package-mac.sh       # → launcher/dist-mac/Langhao-Exhibition-App-Mac.zip
 ```
 
-`next.config.ts` sets `output: "standalone"` specifically so this works —
-it produces a minimal, self-contained server bundle that only needs a Node
-binary next to it, not a full `npm install` on the target machine.
+Both scripts: run `next build`, download and SHA-256-verify the matching
+portable Node runtime from nodejs.org (cached in `scripts/.cache/` after the
+first run), strip the unused `sharp`/`@img` image-optimization packages
+(nothing here uses `next/image`), and zip up the result together with the
+launcher + Chinese instructions from `launcher/`.
+
+```
+Langhao-Exhibition-App/            (Windows)         Langhao-Exhibition-App-Mac/        (Mac, Apple Silicon)
+├── app/                                              ├── app/
+├── node/node.exe                                     ├── node/bin/node
+├── Start Exhibition App.bat                           ├── Start Exhibition App.command
+└── 使用说明.txt                                        └── 使用说明-Mac.txt
+```
+
+The Mac build defaults to Apple Silicon (`arm64`); run with `MAC_ARCH=x64
+./scripts/package-mac.sh` for an Intel Mac instead. Windows is the only
+target actually used at the exhibition; the Mac package exists so this can
+be test-driven on a MacBook first.
 
 ## Tech
 

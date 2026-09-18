@@ -38,8 +38,8 @@ yarn-error.log*
 /data
 
 # packaging output for handoff to the exhibition PCs, and the downloaded
-# Node runtime cached by scripts/package-windows.sh
-/launcher/dist
+# Node runtime cached by scripts/package-windows.sh / package-mac.sh
+/launcher/dist*
 /launcher/node-*
 /scripts/.cache
 
