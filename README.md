@@ -1,84 +1,116 @@
-# 展会线索登记 · Exhibition Lead Capture (MVP)
+# 展会线索登记 · Exhibition Lead Capture
 
-A polished demo of a **lead-capture / sales-follow-up** tool for trade shows.
-A booth visitor scans a QR code, leaves their contact details, snaps photos of
-the products they liked, and submits an enquiry. Staff pick it up later in an
-admin dashboard.
+A **lead-capture / sales-follow-up** tool for trade shows. A booth visitor uses
+the exhibition PC to leave their contact details, snaps photos of the products
+they liked, and submits an enquiry. Staff review it later in a password-protected
+admin dashboard on the same machine.
 
 This is **not** an e-commerce site: no prices, no cart, no checkout, no product
 catalogue.
 
-## Status
+## Architecture: fully local, fully offline
 
-| Part | State |
-| --- | --- |
-| Customer flow (landing → contact → product photos → request → submit → success) | ✅ Built, fully clickable |
-| Bilingual 中 / EN (toggle in the header, default Chinese, remembered per visitor) | ✅ |
-| Business card + product photos: separate **Take photo** / **Upload** actions | ✅ |
-| Product model / item numbers on the products step (add as tags) | ✅ |
-| Responsive phone + iPad layouts | ✅ Verified at 375 / 768 / 1024 px |
-| Supabase (database + image storage) | ⬜ Not wired yet — submit is simulated |
-| Admin dashboard + lead detail | ⬜ Next step |
+There is **no cloud backend** (no Supabase, no Vercel, no external service of
+any kind). The whole app — visitor form, database, photo storage, admin
+dashboard — runs as one Next.js server **on the exhibition PC itself**:
 
-On submit the flow simulates a short delay and logs the assembled payload to the
-browser console (`[demo] lead submitted: …`). Nothing is persisted yet.
+```
+visitor's browser  →  Next.js server (this same PC, 127.0.0.1 only)
+                          ├─ writes photos to  data/uploads/
+                          └─ writes the record to  data/leads.db  (SQLite)
+```
 
-## Run it
+- **Database:** SQLite via Node's built-in `node:sqlite` module — no native
+  addon to compile, no separate database server to install.
+- **Photos:** saved to disk under `data/uploads/`; only the file path is
+  stored in SQLite (see `src/lib/db.ts`, `src/lib/uploads.ts`).
+- **Everything survives a restart** — closing and reopening the app, or
+  rebooting the PC, does not lose data. It's all just files in `data/`.
+- **No internet is used or required** at any point, by design (the exhibition
+  computer will be in mainland China, where relying on an external cloud
+  service is a real risk).
+- **Three independent stations:** the same package runs unmodified on each of
+  the three exhibition PCs. They do **not** sync with each other — each has
+  its own `data/leads.db`. At the end of the event, export a CSV from each
+  machine's `/admin` and combine the three afterward (see `launcher/` below).
+
+## Run it (development)
 
 ```bash
 cd ~/exhibition-lead-capture
 npm run dev
 ```
 
-Then open http://localhost:3000 — best viewed with the browser dev-tools device
-toolbar set to an iPhone (375–430 px) or iPad (768 / 1024 px).
+Open http://localhost:3000 for the visitor form, http://localhost:3000/admin
+for the staff dashboard (default password `langhao2026`, set in
+`src/lib/adminAuth.ts` / overridden by the `ADMIN_PASSWORD` environment
+variable — see `launcher/` for how the packaged app sets it).
+
+## Packaging for the exhibition PCs (Windows)
+
+The exhibition computers should **never need to install Node.js, run `npm
+install`, or touch a terminal.** The handoff is a folder containing:
+
+```
+Langhao-Exhibition-App/
+├── app/                        ← `next build` output (output: "standalone")
+├── node/node.exe               ← portable Node runtime, no install needed
+├── Start Exhibition App.bat    ← double-click this
+└── 使用说明.txt                 ← short Chinese instructions for staff
+```
+
+To rebuild this package after a code change:
+
+```bash
+npm run build                                   # produces .next/standalone
+# copy .next/standalone + public/ + .next/static into Langhao-Exhibition-App/app
+# (see the packaging steps used when this was last built, or ask for the
+#  packaging script to be regenerated)
+```
+
+`next.config.ts` sets `output: "standalone"` specifically so this works —
+it produces a minimal, self-contained server bundle that only needs a Node
+binary next to it, not a full `npm install` on the target machine.
 
 ## Tech
 
-Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4. Supabase +
-Vercel are the intended backend/host and will be added next.
+Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 ·
+`node:sqlite` (Node's built-in SQLite, no external dependency).
 
 ## Where things live
 
 ```
 src/
 ├── app/
-│   ├── layout.tsx          # <html lang> (updated by the language toggle), metadata
-│   ├── globals.css         # Tailwind + design tokens (font stack, light theme)
-│   └── page.tsx            # customer entry point — the QR-code URL
+│   ├── layout.tsx                    # <html lang>, metadata
+│   ├── globals.css                   # Tailwind + design tokens
+│   ├── page.tsx                      # visitor entry point
+│   ├── api/leads/route.ts            # public submit endpoint (writes to SQLite + disk)
+│   ├── api/admin/...                 # login, list, detail, status update, CSV export, photo serving
+│   └── admin/                        # staff pages: login, list, lead detail
 ├── lib/
-│   └── types.ts            # LeadDraft / Lead / REQUEST_TYPES / statuses
+│   ├── types.ts                      # LeadDraft / Lead / REQUEST_TYPES / statuses
+│   ├── db.ts                         # SQLite access (node:sqlite)
+│   ├── uploads.ts                    # saves photos to data/uploads/
+│   ├── paths.ts                      # where data/ lives
+│   └── adminAuth.ts                  # staff login / session cookie
+├── proxy.ts                          # gates /admin + /api/admin/* behind login
 └── components/enquiry/
     ├── EnquiryFlow.tsx     # state machine + page chrome (header, progress, action bar)
-    ├── screens.tsx         # the six screens (presentational)
+    ├── screens.tsx         # the six visitor screens (presentational)
     ├── i18n.tsx            # 中 / EN string bundle + LanguageProvider + LanguageToggle
     ├── ui.tsx              # Button, Field, SegmentedControl, PhotoSourceButtons …
     └── icons.tsx           # small inline SVG icons (no icon library)
 ```
 
-The state machine in `EnquiryFlow.tsx` holds one `LeadDraft` object and moves
-through steps `landing → contact → products → request → submit → success`.
-Uploaded images are kept in memory as `File`s with `URL.createObjectURL`
-previews (revoked on removal / reset).
-
 **Copy / translations** all live in `i18n.tsx` (`STRINGS.zh` / `STRINGS.en`).
-Add a language by adding a third bundle. `RequestType` values stay Chinese as the
-stable storage key; their display text is looked up per-language.
+`RequestType` values stay Chinese as the stable storage key; their display
+text is looked up per-language.
 
 **Take photo vs. Upload** is just two `<input type="file">`s — the "Take photo"
-one carries `capture="environment"` so phones open the camera directly; the
-"Upload" one omits it so the OS shows the album / file picker.
+one carries `capture="environment"` so phones/tablets open the camera
+directly; the "Upload" one omits it so the OS shows the album / file picker.
 
-## Next steps (not done yet)
-
-1. **Supabase**: create a `leads` table matching `Lead` in `src/lib/types.ts`,
-   plus two Storage buckets (`business-cards`, `product-images`). Replace the
-   simulated submit in `EnquiryFlow.tsx > handleSubmit` with real uploads + insert.
-2. **Admin dashboard** at `/admin`: list of leads (name, company, interest,
-   photo count, status) → clickable lead detail page → status dropdown
-   (新线索 / 已联系 / 已报价 / 已成交 / 已流失).
-3. **Deploy** to Vercel.
-
-Manual configuration you'll need to do yourself is called out in the step above
-(creating the Supabase project, table, buckets, and pasting the project URL +
-anon key into `.env.local`).
+**Admin auth** is a single shared staff password (no per-user accounts —
+this is a kiosk app, not a multi-tenant system), checked in `adminAuth.ts`
+and enforced for `/admin/*` and `/api/admin/*` by `src/proxy.ts`.

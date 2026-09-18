@@ -9,8 +9,9 @@
  * shared page chrome (header, progress bar, sticky action bar). Each step's
  * UI lives in ./screens.tsx. Copy is bilingual via ./i18n.tsx.
  *
- * There is no backend yet. On submit we simulate a short network delay and
- * log the assembled payload to the console so the flow is fully clickable.
+ * On submit, the draft (plus the original photo Files) is posted to
+ * /api/leads, which saves everything to the local SQLite database and
+ * uploads folder on this machine — see src/lib/db.ts and src/lib/uploads.ts.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -57,6 +58,7 @@ function makeImage(file: File): UploadedImage {
     id: crypto.randomUUID(),
     url: URL.createObjectURL(file),
     name: file.name,
+    file,
   };
 }
 
@@ -75,6 +77,7 @@ export function EnquiryFlow() {
   const [draft, setDraft] = useState<LeadDraft>(EMPTY_DRAFT);
   const [contactMode, setContactMode] = useState<"card" | "manual">("card");
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [referenceId, setReferenceId] = useState("");
 
   // Mirror the draft in a ref so the unmount cleanup can revoke object URLs
@@ -159,21 +162,35 @@ export function EnquiryFlow() {
     setStep((s) => NEXT[s] ?? s);
   }, []);
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     setSubmitting(true);
-    // Simulate a request. Replace with a Supabase insert + Storage uploads.
-    const payload = {
-      ...draft,
-      businessCard: draft.businessCard?.name ?? null,
-      productImages: draft.productImages.map((i) => i.name),
-    };
-    console.info("[demo] lead submitted:", payload);
-    window.setTimeout(() => {
+    setSubmitError("");
+
+    const formData = new FormData();
+    formData.append("name", draft.name);
+    formData.append("company", draft.company);
+    formData.append("jobTitle", draft.jobTitle);
+    formData.append("country", draft.country);
+    formData.append("phone", draft.phone);
+    formData.append("email", draft.email);
+    formData.append("wechat", draft.wechat);
+    formData.append("message", draft.message);
+    formData.append("requestedInformation", JSON.stringify(draft.requestedInformation));
+    formData.append("productModels", JSON.stringify(draft.productModels));
+    if (draft.businessCard) formData.append("businessCard", draft.businessCard.file);
+    draft.productImages.forEach((img) => formData.append("productImages", img.file));
+
+    try {
+      const res = await fetch("/api/leads", { method: "POST", body: formData });
+      if (!res.ok) throw new Error("submit failed");
       setReferenceId(makeReferenceId());
-      setSubmitting(false);
       setStep("success");
-    }, 900);
-  }, [draft]);
+    } catch {
+      setSubmitError(t.review.submitError);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [draft, t]);
 
   const restart = useCallback(() => {
     draft.productImages.forEach((i) => URL.revokeObjectURL(i.url));
@@ -181,6 +198,7 @@ export function EnquiryFlow() {
     setDraft(EMPTY_DRAFT);
     setContactMode("card");
     setReferenceId("");
+    setSubmitError("");
     setStep("landing");
   }, [draft]);
 
@@ -279,6 +297,9 @@ export function EnquiryFlow() {
               {t.contact.continueHint}
             </p>
           )}
+          {step === "submit" && submitError && (
+            <p className="mt-3 px-1 text-center text-xs text-rose-500">{submitError}</p>
+          )}
         </div>
       </main>
     </div>
@@ -303,9 +324,6 @@ function Header({ onBack }: { onBack: () => void }) {
         <BrandMark />
         <div className="ml-auto flex items-center gap-2">
           <LanguageToggle />
-          <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium tracking-wide text-slate-400 sm:inline-block">
-            {t.demoBadge}
-          </span>
         </div>
       </div>
     </header>

@@ -30,13 +30,22 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
-!.env.local.example
 
-# vercel
-.vercel
+# local runtime data (leads database + uploaded photos) — never commit real
+# visitor data or a dev-time database
+/data
+
+# packaging output for handoff to the exhibition PCs, and the downloaded
+# Node runtime cached by scripts/package-windows.sh
+/launcher/dist
+/launcher/node-*
+/scripts/.cache
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# no longer used, but ignore in case it reappears
+.vercel

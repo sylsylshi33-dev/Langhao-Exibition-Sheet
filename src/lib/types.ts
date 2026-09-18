@@ -1,9 +1,10 @@
 /*
- * Shared types for the lead-capture demo.
+ * Shared types for the lead-capture app.
  *
  * `LeadDraft` is what the customer-facing form builds up in the browser while
- * the visitor clicks through the steps. When we later wire this to Supabase,
- * the draft (plus uploaded file URLs) becomes a `Lead` row.
+ * the visitor clicks through the steps. On submit it's sent to /api/leads,
+ * which saves the photos to disk and writes a `Lead` row to the local
+ * SQLite database (see src/lib/db.ts).
  */
 
 export type LeadStatus = "新线索" | "已联系" | "已报价" | "已成交" | "已流失";
@@ -30,11 +31,16 @@ export const REQUEST_TYPES: RequestType[] = [
   "其他",
 ];
 
-/** A locally-selected image. `url` is an object URL for preview only (demo). */
+/**
+ * A locally-selected image, kept in memory while the visitor fills out the
+ * form. `url` is an object URL used only for the on-screen thumbnail/preview;
+ * `file` is the original file, sent to the server on submit.
+ */
 export interface UploadedImage {
   id: string;
   url: string;
   name: string;
+  file: File;
 }
 
 export interface LeadDraft {

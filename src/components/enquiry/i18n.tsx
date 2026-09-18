@@ -22,7 +22,6 @@ const STORAGE_KEY = "lead-capture.lang";
 
 const zh = {
   brandName: "陕西朗昊",
-  demoBadge: "演示",
   langLabel: { zh: "中", en: "EN" },
 
   common: {
@@ -53,7 +52,7 @@ const zh = {
       "专人跟进，为您提供资料与报价",
     ],
     cta: "提交咨询",
-    disclaimer: "本页面为演示 Demo，信息仅用于功能展示。",
+    disclaimer: "您的信息仅用于本次展会的后续跟进与联系。",
   },
 
   contact: {
@@ -139,6 +138,7 @@ const zh = {
     reachPrefix: { phone: "手机", email: "邮箱", wechat: "微信" },
     submit: "提交咨询",
     submitting: "提交中…",
+    submitError: "提交失败，请检查后重试。",
     none: "—",
   },
 
@@ -154,7 +154,6 @@ type Bundle = typeof zh;
 
 const en: Bundle = {
   brandName: "SHAANXI LANGHAO",
-  demoBadge: "DEMO",
   langLabel: { zh: "中", en: "EN" },
 
   common: {
@@ -185,7 +184,7 @@ const en: Bundle = {
       "A dedicated rep follows up with information and quotes",
     ],
     cta: "Start enquiry",
-    disclaimer: "This is a demo page. Information is used for demonstration only.",
+    disclaimer: "Your information is only used to follow up after this event.",
   },
 
   contact: {
@@ -274,6 +273,7 @@ const en: Bundle = {
     reachPrefix: { phone: "Phone", email: "Email", wechat: "WeChat" },
     submit: "Submit enquiry",
     submitting: "Submitting…",
+    submitError: "Something went wrong — please check and try again.",
     none: "—",
   },
 
