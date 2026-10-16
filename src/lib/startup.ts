@@ -28,3 +28,18 @@ export function runStartupChecks(): void {
       (admin.ok ? "enabled" : `DISABLED (ADMIN_PASSWORD ${admin.reason === "missing" ? "not set" : "too short"})`),
   );
 }
+
+/**
+ * Next.js logs an error thrown during startup but keeps serving, so in
+ * production we exit explicitly: systemd then reports the failure and the
+ * deploy script's health check rolls back.
+ */
+export function runStartupChecksOrExit(): void {
+  try {
+    runStartupChecks();
+  } catch (err) {
+    console.error("[startup] FATAL:", err instanceof Error ? err.message : err);
+    if (process.env.NODE_ENV === "production") process.exit(1);
+    throw err;
+  }
+}
