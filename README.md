@@ -1,132 +1,131 @@
 # 展会线索登记 · Exhibition Lead Capture
 
-A **lead-capture / sales-follow-up** tool for trade shows. A booth visitor uses
-the exhibition PC to leave their contact details, snaps photos of the products
-they liked, and submits an enquiry. Staff review it later in a password-protected
-admin dashboard on the same machine.
+A bilingual (中文 / English) lead-capture site for trade shows. Visitors scan a
+QR code on their own phone, leave their contact details, photograph a business
+card and the products they liked, and say what they want. Staff review the
+leads in a password-protected dashboard and export them to CSV.
 
-This is **not** an e-commerce site: no prices, no cart, no checkout, no product
-catalogue.
+This is **not** an e-commerce site: no prices, no cart, no checkout.
 
-## Architecture: fully local, fully offline
+## How it is hosted
 
-There is **no cloud backend** (no Supabase, no Vercel, no external service of
-any kind). The whole app — visitor form, database, photo storage, admin
-dashboard — runs as one Next.js server **on the exhibition PC itself**:
+One small Linux server (AWS EC2), nothing else:
 
 ```
-visitor's browser  →  Next.js server (this same PC, 127.0.0.1 only)
-                          ├─ writes photos to  data/uploads/
-                          └─ writes the record to  data/leads.db  (SQLite)
+visitor's phone ──HTTPS──▶ Caddy (TLS, size caps, headers)
+                              │  127.0.0.1:3000 only
+                              ▼
+                        Next.js app (Node 22)
+                           ├─ /var/lib/langhao/leads.db        SQLite (WAL)
+                           └─ /var/lib/langhao/uploads/…       photos
 ```
 
-- **Database:** SQLite via Node's built-in `node:sqlite` module — no native
-  addon to compile, no separate database server to install.
-- **Photos:** saved to disk under `data/uploads/`; only the file path is
-  stored in SQLite (see `src/lib/db.ts`, `src/lib/uploads.ts`).
-- **Everything survives a restart** — closing and reopening the app, or
-  rebooting the PC, does not lose data. It's all just files in `data/`.
-- **No internet is used or required** at any point, by design (the exhibition
-  computer will be in mainland China, where relying on an external cloud
-  service is a real risk).
-- **Three independent stations:** the same package runs unmodified on each of
-  the three exhibition PCs. They do **not** sync with each other — each has
-  its own `data/leads.db`. At the end of the event, export a CSV from each
-  machine's `/admin` and combine the three afterward (see `launcher/` below).
+- **Persistence** — leads and photos live in `DATA_DIR` (`/var/lib/langhao`),
+  *outside* the release folders, so deploying or rolling back never touches them.
+- **Single instance, no managed services** — ~100–200 visitors and fewer than
+  10 at once is far below what SQLite on one small instance handles.
+- **Updates** — build a release tarball, run `deploy.sh`: it takes a backup,
+  switches atomically, health-checks, and rolls back by itself if the new
+  version is unhealthy.
+- **Offline fallback** — the same app can still be packaged as a double-click
+  Windows/Mac bundle for a booth PC with no internet (see below).
 
-## Run it (development)
+| Document | Read it when |
+| --- | --- |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Setting up the AWS server for the first time (ordered checklist) |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Updating, rolling back, backing up, restoring, troubleshooting |
+| [docs/CHINA-TESTING.md](docs/CHINA-TESTING.md) | Before printing the QR code: how to test from mainland China |
+| [docs/SECURITY.md](docs/SECURITY.md) | What is protected, how, and what risks remain |
+| [tests/README.md](tests/README.md) | Running the end-to-end test suites |
+
+## Develop
 
 ```bash
-cd ~/exhibition-lead-capture
-npm run dev
+nvm use                # Node 22 (see .nvmrc); node:sqlite is built in
+npm ci
+echo 'ADMIN_PASSWORD=<12+ characters>' > .env.local    # git-ignored
+npm run dev            # http://localhost:3000   (admin: /admin)
 ```
 
-Open http://localhost:3000 for the visitor form and
-http://localhost:3000/admin for the staff dashboard.
+- Without `ADMIN_PASSWORD` the dashboard is disabled and the visitor form
+  still works. **There is no default password.**
+- In development data goes to `./data/` (git-ignored). In production
+  `DATA_DIR` must be set to an absolute path or the server refuses to start.
 
-There is **no default admin password**. The dashboard stays disabled (the
-visitor form keeps working) until `ADMIN_PASSWORD` is set to something at
-least 12 characters long. For local development put it in a git-ignored
-`.env.local`:
+### Checks
+
+```bash
+npx tsc --noEmit && npx eslint src      # types + lint
+npm run test:e2e                         # builds, then ~250 end-to-end checks
+```
+
+### Making a release
+
+```bash
+npm run release        # → dist/langhao-<time>-<sha>.tar.gz (+ .sha256)
+```
+
+then follow [docs/OPERATIONS.md](docs/OPERATIONS.md#updating-the-site).
+
+## Configuration
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `DATA_DIR` | production | Absolute path for the database and photos. Must be outside the release folder. |
+| `ADMIN_PASSWORD` | for the dashboard | 12+ characters. Changing it signs everyone out. |
+| `MIN_FREE_DISK_MB` | no (1024) | Below this much free space, submissions are refused and `/api/healthz` reports degraded. |
+| `BACKUP_S3_URI` | no | e.g. `s3://bucket/path` — backups are also synced there. |
+
+`PORT` and `HOSTNAME` are set by the systemd unit (`3000`, `127.0.0.1`).
+
+## Endpoints
+
+| Path | Who | Purpose |
+| --- | --- | --- |
+| `/` | public | Visitor form (中 / EN) |
+| `POST /api/leads` | public | Submit a lead (validated, rate-limited, size-capped) |
+| `GET /api/healthz` | public | `{"status":"ok"}` or 503 `{"status":"degraded","failed":[…]}` |
+| `/admin`, `/admin/leads/:id` | staff | Dashboard, lead detail with photos, status |
+| `/api/admin/*` | staff | Login/logout, leads, photos, CSV export |
+
+## Repository map
 
 ```
-ADMIN_PASSWORD=<choose a strong password>
+src/app/                 pages and API routes
+src/components/enquiry/  the visitor form (EnquiryFlow, screens, i18n, image + upload helpers)
+src/lib/                 db (SQLite + migrations), ingest (validation), adminAuth/adminSession,
+                         config/paths, throttle, disk, time
+src/instrumentation.ts   fail-fast startup checks
+src/proxy.ts             optimistic gate for /admin (real checks are in each handler)
+deploy/                  everything that runs on the server: bootstrap, deploy, rollback,
+                         backup, restore, systemd units, Caddyfile
+scripts/                 build-release.sh (server release) and package-*.sh (offline bundles)
+launcher/                double-click launchers + staff instructions for the offline bundles
+tests/                   end-to-end suites
+docs/                    deployment, operations, China testing, security
 ```
 
-Sessions are stored server-side in the same SQLite database; changing
-`ADMIN_PASSWORD` signs everyone out. Login attempts are throttled (5 failures
-per client per 15 minutes).
-
-## Packaging (Windows for the exhibition PCs, Mac for testing)
-
-The exhibition computers should **never need to install Node.js, run `npm
-install`, or touch a terminal.** `next.config.ts` sets `output: "standalone"`
-so the built app is a minimal, self-contained server bundle that only needs
-a Node binary next to it — nothing installed on the target machine.
+## Offline bundle (booth PC without internet)
 
 ```bash
 ./scripts/package-windows.sh   # → launcher/dist/Langhao-Exhibition-App.zip
 ./scripts/package-mac.sh       # → launcher/dist-mac/Langhao-Exhibition-App-Mac.zip
 ```
 
-Both scripts: run `next build`, download and SHA-256-verify the matching
-portable Node runtime from nodejs.org (cached in `scripts/.cache/` after the
-first run), strip the unused `sharp`/`@img` image-optimization packages
-(nothing here uses `next/image`), and zip up the result together with the
-launcher + Chinese instructions from `launcher/`.
+Each bundle contains the same app plus a portable Node runtime and a
+double-click launcher. On first start the launcher generates an admin password
+and saves it to `admin-password.txt` beside the launcher; data stays in
+`app/data`. Bundles on different PCs do **not** sync — export a CSV from each.
+This is a fallback; the public website is the primary deployment.
 
-```
-Langhao-Exhibition-App/            (Windows)         Langhao-Exhibition-App-Mac/        (Mac, Apple Silicon)
-├── app/                                              ├── app/
-├── node/node.exe                                     ├── node/bin/node
-├── Start Exhibition App.bat                           ├── Start Exhibition App.command
-└── 使用说明.txt                                        └── 使用说明-Mac.txt
-```
+> Any bundle or zip built **before** this hardening embeds the old code,
+> including a default password that was published in this repository's history.
+> Do not distribute those; rebuild.
 
-The Mac build defaults to Apple Silicon (`arm64`); run with `MAC_ARCH=x64
-./scripts/package-mac.sh` for an Intel Mac instead. Windows is the only
-target actually used at the exhibition; the Mac package exists so this can
-be test-driven on a MacBook first.
+## Known limits
 
-## Tech
-
-Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 ·
-`node:sqlite` (Node's built-in SQLite, no external dependency).
-
-## Where things live
-
-```
-src/
-├── app/
-│   ├── layout.tsx                    # <html lang>, metadata
-│   ├── globals.css                   # Tailwind + design tokens
-│   ├── page.tsx                      # visitor entry point
-│   ├── api/leads/route.ts            # public submit endpoint (writes to SQLite + disk)
-│   ├── api/admin/...                 # login, list, detail, status update, CSV export, photo serving
-│   └── admin/                        # staff pages: login, list, lead detail
-├── lib/
-│   ├── types.ts                      # LeadDraft / Lead / REQUEST_TYPES / statuses
-│   ├── db.ts                         # SQLite access (node:sqlite)
-│   ├── uploads.ts                    # saves photos to data/uploads/
-│   ├── paths.ts                      # where data/ lives
-│   └── adminAuth.ts                  # staff login / session cookie
-├── proxy.ts                          # gates /admin + /api/admin/* behind login
-└── components/enquiry/
-    ├── EnquiryFlow.tsx     # state machine + page chrome (header, progress, action bar)
-    ├── screens.tsx         # the six visitor screens (presentational)
-    ├── i18n.tsx            # 中 / EN string bundle + LanguageProvider + LanguageToggle
-    ├── ui.tsx              # Button, Field, SegmentedControl, PhotoSourceButtons …
-    └── icons.tsx           # small inline SVG icons (no icon library)
-```
-
-**Copy / translations** all live in `i18n.tsx` (`STRINGS.zh` / `STRINGS.en`).
-`RequestType` values stay Chinese as the stable storage key; their display
-text is looked up per-language.
-
-**Take photo vs. Upload** is just two `<input type="file">`s — the "Take photo"
-one carries `capture="environment"` so phones/tablets open the camera
-directly; the "Upload" one omits it so the OS shows the album / file picker.
-
-**Admin auth** is a single shared staff password (no per-user accounts —
-this is a kiosk app, not a multi-tenant system), checked in `adminAuth.ts`
-and enforced for `/admin/*` and `/api/admin/*` by `src/proxy.ts`.
+- One shared staff password (no per-person accounts, no audit trail).
+- No in-app deletion of leads. To clear test data before the show, see
+  [docs/OPERATIONS.md](docs/OPERATIONS.md#clearing-test-data-before-the-show).
+- `node:sqlite` is marked experimental by Node; the version is pinned
+  (`.nvmrc`, `engines`) and exercised by the test suites.
