@@ -1,0 +1,33 @@
+[Unit]
+Description=Langhao exhibition lead capture
+After=network.target
+
+[Service]
+Type=simple
+User=langhao
+Group=langhao
+WorkingDirectory=/opt/langhao/current
+EnvironmentFile=/etc/langhao/langhao.env
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3000
+ExecStart=/opt/node/bin/node server.js
+Restart=always
+RestartSec=3
+
+# Least privilege: the service can write only to its data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/langhao
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=1G
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

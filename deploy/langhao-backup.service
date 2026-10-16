@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up Langhao leads and photos
+
+[Service]
+Type=oneshot
+User=langhao
+Group=langhao
+EnvironmentFile=/etc/langhao/langhao.env
+ExecStart=/opt/langhao/bin/backup.sh scheduled

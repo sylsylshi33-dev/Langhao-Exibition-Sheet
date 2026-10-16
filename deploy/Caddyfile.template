@@ -1,0 +1,58 @@
+# Caddy: automatic HTTPS (Let's Encrypt) + reverse proxy to the app on
+# 127.0.0.1:3000. __DOMAIN__ is filled in by bootstrap-ec2.sh.
+{
+	__ACME_EMAIL__
+
+	servers {
+		# HTTP/3 (QUIC, UDP) is the least reliable path on mainland mobile
+		# networks. Plain HTTP/1.1 + HTTP/2 over TCP only.
+		protocols h1 h2
+
+		timeouts {
+			read_header 20s
+			read_body   5m
+			write       2m
+			idle        2m
+		}
+	}
+}
+
+__DOMAIN__ {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=15552000"
+		-Server
+	}
+
+	# The app never uses Next.js image optimisation; there is no reason to
+	# expose that endpoint to the internet.
+	handle /_next/image* {
+		respond 404
+	}
+
+	# Visitor submissions: photos are compressed in the browser, the app
+	# rejects anything over 30 MB, and this stops oversized bodies earlier.
+	@submit path /api/leads
+	handle @submit {
+		request_body {
+			max_size 31MB
+		}
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	handle {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

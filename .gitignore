@@ -37,6 +37,9 @@ yarn-error.log*
 # visitor data or a dev-time database
 /data
 
+# release tarballs built by scripts/build-release.sh
+/dist
+
 # packaging output for handoff to the exhibition PCs, and the downloaded
 # Node runtime cached by scripts/package-windows.sh / package-mac.sh
 /launcher/dist*
