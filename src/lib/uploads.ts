@@ -1,45 +1,41 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { BUSINESS_CARD_DIR, PRODUCT_IMAGE_DIR } from "./paths";
+import { businessCardDir, productImageDir, uploadsDir } from "./paths";
+import type { ImageExtension } from "./ingest";
 
 /*
- * Saves an uploaded photo to disk and returns the relative path stored in
- * SQLite (e.g. "business-cards/<uuid>.jpg"). Keeping files on disk instead
- * of in the database keeps the database small and lets the images be
- * viewed with a normal file browser if ever needed.
+ * Stores an already-validated photo on disk and returns the relative path kept
+ * in SQLite (e.g. "products/<uuid>.jpg"). The filename is always a fresh UUID
+ * plus an extension chosen from the file's detected type — never anything the
+ * visitor supplied.
  */
-async function saveFile(dir: string, prefix: string, file: File): Promise<string> {
-  // `dir` always resolves under data/uploads (see paths.ts) — it's just a
-  // runtime folder we write into, not something the build needs to trace or
-  // bundle, so tell Turbopack not to pull the whole project in trying to.
+export type UploadKind = "business-cards" | "products";
+
+export async function storeImage(
+  kind: UploadKind,
+  bytes: Uint8Array,
+  extension: ImageExtension,
+): Promise<string> {
+  const dir = kind === "business-cards" ? businessCardDir() : productImageDir();
   await fs.mkdir(dir, { recursive: true });
 
-  const ext = path.extname(file.name) || guessExtension(file.type);
-  const filename = `${randomUUID()}${ext}`;
-  const bytes = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(/* turbopackIgnore: true */ dir, filename), bytes);
-
-  return `${prefix}/${filename}`;
+  const filename = `${randomUUID()}${extension}`;
+  // `dir` is always under DATA_DIR (see paths.ts): a runtime-only folder that
+  // the build must not try to trace or bundle.
+  await fs.writeFile(path.join(/* turbopackIgnore: true */ dir, filename), bytes, {
+    flag: "wx",
+    mode: 0o640,
+  });
+  return `${kind}/${filename}`;
 }
 
-function guessExtension(mimeType: string): string {
-  switch (mimeType) {
-    case "image/png":
-      return ".png";
-    case "image/webp":
-      return ".webp";
-    case "image/heic":
-      return ".heic";
-    default:
-      return ".jpg";
-  }
-}
-
-export function saveBusinessCard(file: File): Promise<string> {
-  return saveFile(BUSINESS_CARD_DIR, "business-cards", file);
-}
-
-export function saveProductImage(file: File): Promise<string> {
-  return saveFile(PRODUCT_IMAGE_DIR, "products", file);
+/** Best-effort cleanup of files written for a submission that then failed. */
+export async function removeStoredImages(relativePaths: string[]): Promise<void> {
+  const root = uploadsDir();
+  await Promise.all(
+    relativePaths.map((relative) =>
+      fs.unlink(path.join(/* turbopackIgnore: true */ root, relative)).catch(() => undefined),
+    ),
+  );
 }

@@ -77,6 +77,8 @@ export const EMPTY_DRAFT: LeadDraft = {
 /** Shape we would persist (kept here so the admin dashboard can reuse it). */
 export interface Lead {
   id: string;
+  /** Visitor-facing reference number, e.g. LC-20261016-K7M2X. */
+  reference: string;
   name: string;
   company: string;
   jobTitle: string;

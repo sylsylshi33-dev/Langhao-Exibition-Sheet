@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isHttpsRequest, readAdminConfig } from "@/lib/adminAuth";
+import { clientKeyFrom } from "@/lib/clientKey";
 import {
   checkLoginAllowed,
   clearLoginFailures,
   clearSessionCookies,
-  clientKeyFrom,
   createSession,
   passwordMatches,
   recordLoginFailure,

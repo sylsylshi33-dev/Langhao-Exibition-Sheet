@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { getLead } from "@/lib/db";
 import { requireAdminPage } from "@/lib/adminSession";
+import { formatBeijing } from "@/lib/time";
 import { StatusSelect } from "./StatusSelect";
 
 export const dynamic = "force-dynamic";
@@ -37,17 +38,20 @@ export default async function LeadDetailPage({
           <Field label="手机" value={lead.phone} />
           <Field label="邮箱" value={lead.email} />
           <Field label="微信" value={lead.wechat} />
-          <Field label="提交时间" value={new Date(lead.createdAt).toLocaleString("zh-CN")} />
+          <Field label="咨询编号" value={lead.reference} />
+          <Field label="提交时间（北京时间）" value={formatBeijing(lead.createdAt)} />
         </Section>
 
         {lead.businessCardImage && (
           <Section title="名片">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/admin/uploads/${lead.businessCardImage}`}
-              alt="名片"
-              className="max-h-72 rounded-xl border border-slate-200 object-contain"
-            />
+            <a href={`/api/admin/uploads/${lead.businessCardImage}`} target="_blank" rel="noreferrer">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/admin/uploads/${lead.businessCardImage}`}
+                alt="名片"
+                className="max-h-72 rounded-xl border border-slate-200 object-contain"
+              />
+            </a>
           </Section>
         )}
 
@@ -55,13 +59,14 @@ export default async function LeadDetailPage({
           <Section title="感兴趣的产品照片">
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
               {lead.productImages.map((src) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={src}
-                  src={`/api/admin/uploads/${src}`}
-                  alt="产品照片"
-                  className="aspect-square rounded-xl border border-slate-200 object-cover"
-                />
+                <a key={src} href={`/api/admin/uploads/${src}`} target="_blank" rel="noreferrer">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/admin/uploads/${src}`}
+                    alt="产品照片"
+                    className="aspect-square rounded-xl border border-slate-200 object-cover"
+                  />
+                </a>
               ))}
             </div>
           </Section>

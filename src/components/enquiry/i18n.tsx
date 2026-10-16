@@ -95,6 +95,7 @@ const zh = {
     takePhoto: "拍照",
     uploadPhoto: "从相册上传",
     removePhotoAria: "移除照片",
+    maxPhotos: (max: number) => `最多可上传 ${max} 张`,
     photoCount: (n: number) => `已添加 ${n} 张照片 · 点按照片右上角可移除`,
     emptyHint:
       "暂时没有照片也没关系，可直接进入下一步，稍后由销售人员协助确认产品。",
@@ -138,7 +139,12 @@ const zh = {
     reachPrefix: { phone: "手机", email: "邮箱", wechat: "微信" },
     submit: "提交咨询",
     submitting: "提交中…",
-    submitError: "提交失败，请检查后重试。",
+    submitError: "提交失败，请稍后重试。",
+    submitErrorInvalid: "信息填写有误，请返回检查后重试。",
+    submitErrorTooLarge: "照片文件过大，请减少照片数量或更换照片后重试。",
+    submitErrorBusy: "提交过于频繁，请稍后再试。",
+    submitErrorNetwork: "网络不稳定，提交未完成。请检查网络后再次点击提交，信息不会重复。",
+    uploading: (percent: number) => `上传中 ${percent}%`,
     none: "—",
   },
 
@@ -228,6 +234,7 @@ const en: Bundle = {
     takePhoto: "Take photo",
     uploadPhoto: "Upload",
     removePhotoAria: "Remove photo",
+    maxPhotos: (max: number) => `up to ${max} photos`,
     photoCount: (n: number) =>
       `${n} photo${n === 1 ? "" : "s"} added · tap the corner of a photo to remove`,
     emptyHint:
@@ -273,7 +280,12 @@ const en: Bundle = {
     reachPrefix: { phone: "Phone", email: "Email", wechat: "WeChat" },
     submit: "Submit enquiry",
     submitting: "Submitting…",
-    submitError: "Something went wrong — please check and try again.",
+    submitError: "Something went wrong — please try again shortly.",
+    submitErrorInvalid: "Some details look wrong — please go back, check them and try again.",
+    submitErrorTooLarge: "Your photos are too large — please remove some or choose different ones and try again.",
+    submitErrorBusy: "Too many submissions right now — please try again in a moment.",
+    submitErrorNetwork: "The connection is unstable and your enquiry was not sent. Check your network and tap submit again — it won't be duplicated.",
+    uploading: (percent: number) => `Uploading ${percent}%`,
     none: "—",
   },
 

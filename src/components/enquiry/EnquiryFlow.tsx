@@ -23,6 +23,8 @@ import {
 } from "@/lib/types";
 import { ChevronLeftIcon } from "./icons";
 import { LanguageToggle, useI18n } from "./i18n";
+import { MAX_PRODUCT_PHOTOS, prepareImage } from "./image";
+import { newClientId, postLead } from "./upload";
 import { Button } from "./ui";
 import {
   BrandMark,
@@ -55,20 +57,11 @@ const NEXT: Partial<Record<Step, Step>> = {
 
 function makeImage(file: File): UploadedImage {
   return {
-    id: crypto.randomUUID(),
+    id: newClientId(),
     url: URL.createObjectURL(file),
     name: file.name,
     file,
   };
-}
-
-function makeReferenceId(): string {
-  const d = new Date();
-  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
-    d.getDate(),
-  ).padStart(2, "0")}`;
-  const seq = String(Math.floor(Math.random() * 900) + 100);
-  return `LC-${ymd}-${seq}`;
 }
 
 export function EnquiryFlow() {
@@ -79,6 +72,12 @@ export function EnquiryFlow() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [referenceId, setReferenceId] = useState("");
+  const [uploadPercent, setUploadPercent] = useState(0);
+  // Photos are shrunk in the browser before upload; block Next/Submit meanwhile.
+  const [processing, setProcessing] = useState(0);
+  // One id per submission attempt chain, so automatic retries and re-clicks
+  // after a lost response can never create a duplicate lead.
+  const submissionIdRef = useRef<string | null>(null);
 
   // Mirror the draft in a ref so the unmount cleanup can revoke object URLs
   // without re-running on every keystroke.
@@ -101,11 +100,17 @@ export function EnquiryFlow() {
     setDraft((d) => ({ ...d, ...patch }));
   }, []);
 
-  const setBusinessCard = useCallback((file: File) => {
-    setDraft((d) => {
-      if (d.businessCard) URL.revokeObjectURL(d.businessCard.url);
-      return { ...d, businessCard: makeImage(file) };
-    });
+  const setBusinessCard = useCallback(async (file: File) => {
+    setProcessing((n) => n + 1);
+    try {
+      const image = makeImage(await prepareImage(file, "card"));
+      setDraft((d) => {
+        if (d.businessCard) URL.revokeObjectURL(d.businessCard.url);
+        return { ...d, businessCard: image };
+      });
+    } finally {
+      setProcessing((n) => n - 1);
+    }
   }, []);
 
   const removeBusinessCard = useCallback(() => {
@@ -115,9 +120,25 @@ export function EnquiryFlow() {
     });
   }, []);
 
-  const addProductImages = useCallback((files: FileList) => {
-    const next = Array.from(files).map(makeImage);
-    setDraft((d) => ({ ...d, productImages: [...d.productImages, ...next] }));
+  const addProductImages = useCallback(async (files: FileList) => {
+    const room = MAX_PRODUCT_PHOTOS - draftRef.current.productImages.length;
+    const selected = Array.from(files).slice(0, Math.max(0, room));
+    if (selected.length === 0) return;
+
+    setProcessing((n) => n + 1);
+    try {
+      // One at a time: decoding several full-size photos at once can exhaust phone memory.
+      for (const file of selected) {
+        const image = makeImage(await prepareImage(file, "photo"));
+        setDraft((d) =>
+          d.productImages.length >= MAX_PRODUCT_PHOTOS
+            ? d
+            : { ...d, productImages: [...d.productImages, image] },
+        );
+      }
+    } finally {
+      setProcessing((n) => n - 1);
+    }
   }, []);
 
   const removeProductImage = useCallback((id: string) => {
@@ -165,8 +186,12 @@ export function EnquiryFlow() {
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
     setSubmitError("");
+    setUploadPercent(0);
+
+    if (!submissionIdRef.current) submissionIdRef.current = newClientId();
 
     const formData = new FormData();
+    formData.append("clientSubmissionId", submissionIdRef.current);
     formData.append("name", draft.name);
     formData.append("company", draft.company);
     formData.append("jobTitle", draft.jobTitle);
@@ -180,16 +205,26 @@ export function EnquiryFlow() {
     if (draft.businessCard) formData.append("businessCard", draft.businessCard.file);
     draft.productImages.forEach((img) => formData.append("productImages", img.file));
 
-    try {
-      const res = await fetch("/api/leads", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("submit failed");
-      setReferenceId(makeReferenceId());
+    const result = await postLead(formData, (fraction) =>
+      setUploadPercent(Math.round(fraction * 100)),
+    );
+
+    if (result.kind === "response" && result.status >= 200 && result.status < 300 && result.body?.ok) {
+      setReferenceId(result.body.reference ?? "");
+      submissionIdRef.current = null;
       setStep("success");
-    } catch {
+    } else if (result.kind === "response" && result.status === 429) {
+      setSubmitError(t.review.submitErrorBusy);
+    } else if (result.kind === "response" && result.status === 413) {
+      setSubmitError(t.review.submitErrorTooLarge);
+    } else if (result.kind === "response" && result.status >= 400 && result.status < 500) {
+      setSubmitError(t.review.submitErrorInvalid);
+    } else if (result.kind === "network") {
+      setSubmitError(t.review.submitErrorNetwork);
+    } else {
       setSubmitError(t.review.submitError);
-    } finally {
-      setSubmitting(false);
     }
+    setSubmitting(false);
   }, [draft, t]);
 
   const restart = useCallback(() => {
@@ -199,6 +234,8 @@ export function EnquiryFlow() {
     setContactMode("card");
     setReferenceId("");
     setSubmitError("");
+    setUploadPercent(0);
+    submissionIdRef.current = null;
     setStep("landing");
   }, [draft]);
 
@@ -220,7 +257,7 @@ export function EnquiryFlow() {
     t.progress.request,
     t.progress.submit,
   ];
-  const canAdvance = step === "contact" ? contactReady(draft) : true;
+  const canAdvance = (step === "contact" ? contactReady(draft) : true) && processing === 0;
   const isLastStep = step === "submit";
 
   return (
@@ -274,10 +311,15 @@ export function EnquiryFlow() {
                 <Button
                   fullWidth
                   loading={submitting}
+                  disabled={processing > 0}
                   onClick={handleSubmit}
                   className="flex-1"
                 >
-                  {submitting ? t.review.submitting : t.review.submit}
+                  {submitting
+                    ? uploadPercent > 0 && uploadPercent < 100
+                      ? t.review.uploading(uploadPercent)
+                      : t.review.submitting
+                    : t.review.submit}
                 </Button>
               ) : (
                 <Button

@@ -17,6 +17,7 @@ import {
   type UploadedImage,
 } from "@/lib/types";
 import { LanguageToggle, useI18n } from "./i18n";
+import { MAX_PRODUCT_PHOTOS } from "./image";
 import {
   CheckIcon,
   ChatIcon,
@@ -149,6 +150,7 @@ export function ContactScreen({
         id={key}
         className={inputClass}
         value={draft[key]}
+        maxLength={key === "email" ? 254 : key === "phone" ? 40 : 100}
         inputMode={extra?.inputMode}
         autoComplete={extra?.autoComplete}
         onChange={(e) => onChange({ [key]: e.target.value } as Partial<LeadDraft>)}
@@ -296,7 +298,10 @@ export function ProductsScreen({
                 </div>
               ))}
             </div>
-            <p className="text-xs text-slate-400">{p.photoCount(images.length)}</p>
+            <p className="text-xs text-slate-400">
+              {p.photoCount(images.length)}
+              {images.length >= MAX_PRODUCT_PHOTOS ? ` · ${p.maxPhotos(MAX_PRODUCT_PHOTOS)}` : ""}
+            </p>
           </>
         )}
 
@@ -314,6 +319,7 @@ export function ProductsScreen({
         <div className="flex gap-2">
           <input
             id="model"
+            maxLength={60}
             className={`${inputClass} flex-1`}
             value={modelInput}
             onChange={(e) => setModelInput(e.target.value)}
@@ -420,6 +426,7 @@ export function RequestScreen({
       <Field label={t.request.messageLabel} htmlFor="message">
         <textarea
           id="message"
+          maxLength={2000}
           className={textareaClass}
           rows={4}
           value={message}

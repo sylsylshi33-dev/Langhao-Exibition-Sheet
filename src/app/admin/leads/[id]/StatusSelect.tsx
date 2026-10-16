@@ -9,16 +9,31 @@ export function StatusSelect({ leadId, status }: { leadId: string; status: LeadS
   const [current, setCurrent] = useState(status);
   const [saving, setSaving] = useState(false);
 
+  const [error, setError] = useState("");
+
   async function handleChange(next: LeadStatus) {
+    const previous = current;
     setCurrent(next);
     setSaving(true);
-    await fetch(`/api/admin/leads/${leadId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: next }),
-    });
-    setSaving(false);
-    router.refresh();
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/leads/${leadId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      if (res.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      if (!res.ok) throw new Error("save failed");
+      router.refresh();
+    } catch {
+      setCurrent(previous);
+      setError("保存失败，请重试");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -36,6 +51,7 @@ export function StatusSelect({ leadId, status }: { leadId: string; status: LeadS
           </option>
         ))}
       </select>
+      {error && <span className="text-xs text-rose-500">{error}</span>}
     </label>
   );
 }
