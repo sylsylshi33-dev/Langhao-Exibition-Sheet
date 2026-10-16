@@ -11,7 +11,8 @@
     "start": "node -e \"console.error('Production runs from a release: see docs/DEPLOYMENT.md (npm run release builds one).'); process.exit(1)\"",
     "lint": "eslint",
     "release": "bash scripts/build-release.sh",
-    "test:e2e": "bash tests/run-all.sh"
+    "test:e2e": "bash tests/run-all.sh",
+    "preview": "bash scripts/preview.sh"
   },
   "dependencies": {
     "next": "16.3.8",

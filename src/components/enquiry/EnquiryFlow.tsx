@@ -78,6 +78,8 @@ export function EnquiryFlow() {
   // One id per submission attempt chain, so automatic retries and re-clicks
   // after a lost response can never create a duplicate lead.
   const submissionIdRef = useRef<string | null>(null);
+  // State updates are asynchronous, so rapid taps could all see "not submitting".
+  const submitInFlightRef = useRef(false);
 
   // Mirror the draft in a ref so the unmount cleanup can revoke object URLs
   // without re-running on every keystroke.
@@ -184,6 +186,8 @@ export function EnquiryFlow() {
   }, []);
 
   const handleSubmit = useCallback(async () => {
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setSubmitting(true);
     setSubmitError("");
     setUploadPercent(0);
@@ -224,6 +228,7 @@ export function EnquiryFlow() {
     } else {
       setSubmitError(t.review.submitError);
     }
+    submitInFlightRef.current = false;
     setSubmitting(false);
   }, [draft, t]);
 
