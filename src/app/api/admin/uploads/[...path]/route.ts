@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { UPLOADS_DIR } from "@/lib/paths";
+import { requireAdminApi } from "@/lib/adminSession";
 
 const MIME_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
@@ -15,9 +16,12 @@ const MIME_TYPES: Record<string, string> = {
 /* Serves a saved photo from data/uploads/. Behind the admin login (see
    middleware) since these can contain visitors' personal information. */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
+  const denied = requireAdminApi(request);
+  if (denied) return denied;
+
   const { path: segments } = await params;
   const safeSegments = segments.filter((s) => s && s !== "." && s !== "..");
   const filePath = path.join(UPLOADS_DIR, ...safeSegments);

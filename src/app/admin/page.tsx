@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { listLeads } from "@/lib/db";
+import { requireAdminPage } from "@/lib/adminSession";
 import { LogoutButton } from "./LogoutButton";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
+  await requireAdminPage();
   const leads = listLeads();
 
   return (

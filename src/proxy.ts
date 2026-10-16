@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE_NAME, isValidSessionToken } from "@/lib/adminAuth";
+import { isHttpsRequest, readSessionToken } from "@/lib/adminAuth";
 
-/* Gate every /admin page and /api/admin/* call behind the staff login. */
-export async function proxy(request: NextRequest) {
+/*
+ * First, cheap gate for /admin pages and /api/admin/*: rejects requests that
+ * carry no well-formed session cookie, so anonymous traffic never reaches
+ * the app. This is only an OPTIMISTIC check (Next.js guidance: no database
+ * work in Proxy). The authoritative check — does this token exist in the
+ * session table and is it unexpired — is repeated inside every admin page
+ * and handler via requireAdminPage() / requireAdminApi().
+ */
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/admin/login" || pathname === "/api/admin/login") {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get(COOKIE_NAME)?.value;
-  if (await isValidSessionToken(token)) {
+  const token = readSessionToken(request.cookies, isHttpsRequest(request.headers));
+  if (token) {
     return NextResponse.next();
   }
 

@@ -41,10 +41,21 @@ cd ~/exhibition-lead-capture
 npm run dev
 ```
 
-Open http://localhost:3000 for the visitor form, http://localhost:3000/admin
-for the staff dashboard (default password `langhao2026`, set in
-`src/lib/adminAuth.ts` / overridden by the `ADMIN_PASSWORD` environment
-variable — see `launcher/` for how the packaged app sets it).
+Open http://localhost:3000 for the visitor form and
+http://localhost:3000/admin for the staff dashboard.
+
+There is **no default admin password**. The dashboard stays disabled (the
+visitor form keeps working) until `ADMIN_PASSWORD` is set to something at
+least 12 characters long. For local development put it in a git-ignored
+`.env.local`:
+
+```
+ADMIN_PASSWORD=<choose a strong password>
+```
+
+Sessions are stored server-side in the same SQLite database; changing
+`ADMIN_PASSWORD` signs everyone out. Login attempts are throttled (5 failures
+per client per 15 minutes).
 
 ## Packaging (Windows for the exhibition PCs, Mac for testing)
 

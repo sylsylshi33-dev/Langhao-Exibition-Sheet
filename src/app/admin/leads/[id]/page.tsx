@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { getLead } from "@/lib/db";
+import { requireAdminPage } from "@/lib/adminSession";
 import { StatusSelect } from "./StatusSelect";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export default async function LeadDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireAdminPage();
   const { id } = await params;
   const lead = getLead(id);
   if (!lead) notFound();

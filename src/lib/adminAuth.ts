@@ -1,42 +1,59 @@
 /*
- * Very small session scheme for the /admin area — deliberately simple for a
- * single shared staff login on an offline kiosk PC, not a multi-user system.
+ * Admin authentication — configuration, cookie naming and token format.
  *
- * Built only on Web Crypto (`crypto.subtle`) rather than `node:crypto` so
- * this file works unchanged whether it's imported from a Node.js API route
- * or from middleware (which may run in the Edge runtime).
+ * This file is deliberately free of database and Node-only imports so the
+ * proxy (src/proxy.ts) can use it for its cheap, optimistic gate. The
+ * authoritative checks live in ./adminSession.ts and run inside every admin
+ * page and API handler.
  *
- * The password is never read from user input by exhibition staff — it's set
- * once, in the launcher script, before the PC is handed off. See
- * launcher/README.md.
+ * There is NO default password. If ADMIN_PASSWORD is missing or too short the
+ * admin area is disabled; the visitor form keeps working.
  */
 
-const COOKIE_NAME = "admin_session";
-const DEFAULT_PASSWORD = "langhao2026";
+export const MIN_PASSWORD_LENGTH = 12;
 
-function getAdminPassword(): string {
-  return process.env.ADMIN_PASSWORD || DEFAULT_PASSWORD;
+/** Absolute session lifetime. */
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
+
+/** Over HTTPS the `__Host-` prefix makes the browser enforce Secure + Path=/ + no Domain. */
+export const SESSION_COOKIE_SECURE = "__Host-admin_session";
+export const SESSION_COOKIE_PLAIN = "admin_session";
+
+/** 32 random bytes, base64url-encoded. */
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+export type AdminConfig =
+  | { ok: true; password: string }
+  | { ok: false; reason: "missing" | "too_short" };
+
+export function readAdminConfig(): AdminConfig {
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) return { ok: false, reason: "missing" };
+  if (password.length < MIN_PASSWORD_LENGTH) return { ok: false, reason: "too_short" };
+  return { ok: true, password };
 }
 
-async function sha256Hex(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+/**
+ * True when the visitor reached us over HTTPS. Behind a TLS-terminating
+ * reverse proxy the app itself only sees HTTP, so the proxy's
+ * X-Forwarded-Proto header is the signal. The app port must not be publicly
+ * reachable (bind to 127.0.0.1), otherwise this header could be spoofed —
+ * the worst a spoof can do here is set a Secure flag, which is harmless.
+ */
+export function isHttpsRequest(headers: { get(name: string): string | null }): boolean {
+  const proto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  return proto === "https";
 }
 
-export function checkPassword(password: string): boolean {
-  return password === getAdminPassword();
+export function sessionCookieName(secure: boolean): string {
+  return secure ? SESSION_COOKIE_SECURE : SESSION_COOKIE_PLAIN;
 }
 
-export function sessionCookieValue(): Promise<string> {
-  return sha256Hex(`exhibition-admin:${getAdminPassword()}`);
+/** Returns the cookie value only if it is well-formed for this protocol. */
+export function readSessionToken(
+  cookies: { get(name: string): { value: string } | undefined },
+  secure: boolean,
+): string | undefined {
+  const value = cookies.get(sessionCookieName(secure))?.value;
+  return value && TOKEN_PATTERN.test(value) ? value : undefined;
 }
-
-export async function isValidSessionToken(token: string | undefined): Promise<boolean> {
-  if (!token) return false;
-  return token === (await sessionCookieValue());
-}
-
-export { COOKIE_NAME };

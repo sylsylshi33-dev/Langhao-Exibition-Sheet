@@ -15,7 +15,35 @@ import type { Lead, LeadStatus, RequestType } from "./types";
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new DatabaseSync(DB_PATH);
+export const db = new DatabaseSync(DB_PATH);
+
+// Several processes can open this file at once (e.g. `next build` runs
+// parallel workers that all evaluate this module). Wait for the lock rather
+// than failing immediately with "database is locked".
+db.exec("PRAGMA busy_timeout = 5000");
+
+// Admin auth state (see adminSession.ts). Additive: the leads table below
+// is not touched, so existing databases upgrade in place on next start.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admin_sessions (
+    token_hash TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions (expires_at);
+
+  CREATE TABLE IF NOT EXISTS admin_login_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_key TEXT NOT NULL,
+    failed_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_admin_login_failures ON admin_login_failures (client_key, failed_at);
+
+  CREATE TABLE IF NOT EXISTS admin_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS leads (

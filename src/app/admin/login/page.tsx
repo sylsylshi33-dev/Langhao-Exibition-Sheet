@@ -14,17 +14,32 @@ export default function AdminLoginPage() {
     setLoading(true);
     setError("");
 
-    const res = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+    } catch {
+      setLoading(false);
+      setError("无法连接服务器，请稍后重试。");
+      return;
+    }
 
     if (res.ok) {
       router.replace("/admin");
       router.refresh();
+      return;
+    }
+
+    setLoading(false);
+    if (res.status === 429) {
+      const seconds = Number(res.headers.get("Retry-After")) || 60;
+      setError(`尝试次数过多，请 ${Math.ceil(seconds / 60)} 分钟后再试。`);
+    } else if (res.status === 503) {
+      setError("后台尚未完成配置，请联系管理员。");
     } else {
-      setLoading(false);
       setError("密码错误，请重试。");
     }
   }

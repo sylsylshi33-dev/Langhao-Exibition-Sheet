@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLead, updateLeadStatus } from "@/lib/db";
+import { requireAdminApi } from "@/lib/adminSession";
 import { LEAD_STATUSES, type LeadStatus } from "@/lib/types";
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = requireAdminApi(request);
+  if (denied) return denied;
+
   const { id } = await params;
   const lead = getLead(id);
   if (!lead) return NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -10,6 +14,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = requireAdminApi(request);
+  if (denied) return denied;
+
   const { id } = await params;
   const body = (await request.json().catch(() => null)) as { status?: string } | null;
 

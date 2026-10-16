@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { listLeads } from "@/lib/db";
+import { requireAdminApi } from "@/lib/adminSession";
 
 function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
@@ -22,7 +23,10 @@ const HEADERS = [
   "留言",
 ];
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = requireAdminApi(request);
+  if (denied) return denied;
+
   const leads = listLeads();
 
   const rows = leads.map((lead) =>
