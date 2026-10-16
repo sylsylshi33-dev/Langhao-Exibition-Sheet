@@ -62,6 +62,8 @@ case "$(uname -m)" in
 esac
 
 sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
+# Caddy publishes SHA-512 checksums (Node publishes SHA-256).
+sha512_of() { if command -v sha512sum >/dev/null 2>&1; then sha512sum "$1" | awk '{print $1}'; else shasum -a 512 "$1" | awk '{print $1}'; fi; }
 
 ###############################################################################
 say "1/8  Users and directories"
@@ -144,8 +146,9 @@ elif [ -n "$DRY" ]; then
   echo "   + download the latest Caddy release for linux/$CADDY_ARCH from github.com/caddyserver/caddy, verify its checksum, install to $CADDY_BIN"
 else
   TMP="$(mktemp -d)"
-  TAG="$(curl -fsSL https://api.github.com/repos/caddyserver/caddy/releases/latest | grep -m1 '"tag_name"' | sed -E 's/.*"(v[^"]+)".*/\1/')"
-  [ -n "$TAG" ] || die "could not determine the latest Caddy release"
+  # /releases/latest redirects to .../releases/tag/vX.Y.Z (no API rate limits, no JSON to parse).
+  TAG="$(curl -fsSIL -o /dev/null -w '%{url_effective}' https://github.com/caddyserver/caddy/releases/latest | sed 's|.*/||')"
+  case "$TAG" in v[0-9]*) ;; *) die "could not determine the latest Caddy release (got '$TAG')" ;; esac
   VER="${TAG#v}"
   ASSET="caddy_${VER}_linux_${CADDY_ARCH}.tar.gz"
   BASE="https://github.com/caddyserver/caddy/releases/download/${TAG}"
@@ -153,7 +156,7 @@ else
   curl -fsSL -o "$TMP/checksums.txt" "$BASE/caddy_${VER}_checksums.txt"
   EXPECTED="$(grep " ${ASSET}\$" "$TMP/checksums.txt" | awk '{print $1}')"
   [ -n "$EXPECTED" ] || die "no checksum listed for $ASSET"
-  [ "$EXPECTED" = "$(sha256_of "$TMP/$ASSET")" ] || die "Caddy download failed its checksum"
+  [ "$EXPECTED" = "$(sha512_of "$TMP/$ASSET")" ] || die "Caddy download failed its checksum"
   tar -xzf "$TMP/$ASSET" -C "$TMP" caddy
   install -m 0755 "$TMP/caddy" "$CADDY_BIN"
   rm -rf "$TMP"
