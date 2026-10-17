@@ -44,6 +44,7 @@ assemble() {
   cp -R "$REPO/.next/standalone/." "$PKG/"
   cp -R "$REPO/public" "$PKG/public"
   mkdir -p "$PKG/.next"; cp -R "$REPO/.next/static" "$PKG/.next/static"
+  mkdir -p "$PKG/assets"; cp -R "$REPO/assets/fonts" "$PKG/assets/fonts"   # PDF font, as build-release.sh does
   rm -rf "$PKG/data"
 }
 sql() { node -e "const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('$1');const r=d.prepare(process.argv[1]).all();console.log(r.length===1?Object.values(r[0])[0]:JSON.stringify(r))" "$2" 2>/dev/null; }
@@ -88,13 +89,13 @@ chmod 755 "$W/ro"
 echo
 echo "== 2. Healthy start, health endpoint =="
 start_server DATA_DIR="$DATA" ADMIN_PASSWORD="$PW"
-has   "startup line reports data dir + schema + admin state" "\[startup\] data dir: $DATA \| schema v2 \| admin: enabled" "$(cat "$LOG")"
+has   "startup line reports data dir + schema + admin state" "\[startup\] data dir: $DATA \| schema v3 \| admin: enabled" "$(cat "$LOG")"
 check "healthz 200" 200 "$(code $BASE/api/healthz)"
 check "healthz body" '{"status":"ok"}' "$(curl -s $BASE/api/healthz)"
 check "healthz not cacheable" "no-store" "$(curl -sI $BASE/api/healthz | grep -i '^cache-control' | tr -d '\r' | awk '{print $2}')"
 check "data dir + db + uploads created outside the release dir" "yes" "$([ -f "$DATA/leads.db" ] && [ -d "$DATA/uploads/products" ] && [ ! -e "$PKG/data" ] && echo yes || echo no)"
 check "database is in WAL mode" "wal" "$(sql "$DATA/leads.db" 'PRAGMA journal_mode')"
-check "schema version stamped" "2" "$(sql "$DATA/leads.db" 'PRAGMA user_version')"
+check "schema version stamped" "3" "$(sql "$DATA/leads.db" 'PRAGMA user_version')"
 start_server DATA_DIR="$DATA"
 check "healthz degraded when admin not configured -> 503" 503 "$(code $BASE/api/healthz)"
 has   "...and says which check failed (no paths/secrets)" '"failed":\["admin_config"\]' "$(curl -s $BASE/api/healthz)"
@@ -116,15 +117,21 @@ REF=$(echo "$R" | body | node -e "let d='';process.stdin.on('data',c=>d+=c).on('
 ID=$(echo "$R"  | body | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).id))")
 has   "server returns a reference like LC-YYYYMMDD-XXXXX" '^LC-[0-9]{8}-[A-HJ-NP-Z2-9]{5}$' "$REF"
 check "3 photos stored" 3 "$(files_in_uploads)"
-check "duplicate model numbers de-duplicated" '["RX-200","VLX-9"]' "$(sql "$DATA/leads.db" 'SELECT product_models FROM leads')"
+check "old-style form (productImages + productModels) is stored as ONE product, models de-duplicated" 'RX-200, VLX-9|2' "$(sql "$DATA/leads.db" "SELECT sku || '|' || json_array_length(photo_paths) FROM lead_products")"
 check "reference persisted with the lead" "$REF" "$(sql "$DATA/leads.db" 'SELECT reference FROM leads')"
 CARDPATH=$(sql "$DATA/leads.db" 'SELECT business_card_path FROM leads')
 has   "business card stored as uuid + detected extension" '^business-cards/[0-9a-f-]{36}\.png$' "$CARDPATH"
 
 R2=$(post -F name=Bob -F company=B -F email=b@example.com -F country=CN -F "businessCard=@$FX/ok.heic;type=image/heic")
 check "HEIC accepted" 200 "$(echo "$R2" | last)"
-R3=$(post -F "businessCard=@$FX/ok.jpg;type=image/jpeg")
-check "business card alone is enough (no other fields)" 200 "$(echo "$R3" | last)"
+R3=$(post -F name=Carla -F "businessCard=@$FX/ok.jpg;type=image/jpeg")
+check "name + business card is enough (company/email/country optional with a card)" 200 "$(echo "$R3" | last)"
+check "the name is saved in its own column" "Carla" "$(sql "$DATA/leads.db" "SELECT name FROM leads WHERE id='$(echo "$R3" | body | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).id))")'")"
+check "business card WITHOUT a name -> 400 (a card never identifies the visitor)" 400 "$(post -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | last)"
+has   "...and says the name is the problem" '"fields":\["name"\]' "$(post -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | body)"
+check "whitespace-only name with a card -> 400" 400 "$(post --form-string 'name=   ' -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | last)"
+check "name omitted, all other manual fields given -> 400" 400 "$(post -F company=B -F email=b@example.com -F country=CN | last)"
+check "rejected nameless submissions stored nothing" "yes" "$([ "$(sql "$DATA/leads.db" "SELECT COUNT(*) FROM leads WHERE name=''")" == "0" ] && echo yes || echo no)"
 
 echo
 echo "== 4. Upload validation: nothing bad reaches disk or the database =="
@@ -139,8 +146,8 @@ check "13 MB file -> 413"                          413 "$(V -F "productImages=@$
 check "11 MB file is fine (under the 12 MB cap)"   200 "$(V -F "productImages=@$FX/big11.jpg;type=image/jpeg" | last)"
 check "rejected submissions left no files"         "$((BEFORE_FILES + 1))" "$(files_in_uploads)"
 check "rejected submissions left no rows"          "$((BEFORE_ROWS + 1))" "$(lead_count)"
-ARGS=(); for i in $(seq 1 11); do ARGS+=(-F "productImages=@$FX/ok.jpg;type=image/jpeg"); done
-check "11 product photos -> 400"                   400 "$(V "${ARGS[@]}" | last)"
+ARGS=(); for i in $(seq 1 21); do ARGS+=(-F "productImages=@$FX/ok.jpg;type=image/jpeg"); done
+check "21 product photos -> 400"                   400 "$(V "${ARGS[@]}" | last)"
 has   "...as too_many_images"                      "too_many_images" "$(V "${ARGS[@]}" | body)"
 check "non-multipart body -> 415"                  415 "$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/leads -H 'Content-Type: application/json' -d '{"name":"x"}')"
 { printf '\xff\xd8\xff\xe0'; head -c 31000000 /dev/zero; } > "$FX/huge31.jpg"
@@ -177,7 +184,8 @@ check "...and no orphaned files from the losers"  "$((FILES + 1))" "$(files_in_u
 ORPHANS=$(node -e "
 const {DatabaseSync}=require('node:sqlite');const fs=require('fs'),path=require('path');
 const d=new DatabaseSync('$DATA/leads.db');const known=new Set();
-for(const r of d.prepare('SELECT business_card_path c, product_image_paths p FROM leads').all()){ if(r.c)known.add(r.c); JSON.parse(r.p).forEach(x=>known.add(x)); }
+for(const r of d.prepare('SELECT business_card_path c FROM leads').all()){ if(r.c)known.add(r.c); }
+for(const r of d.prepare('SELECT photo_paths p FROM lead_products').all()){ JSON.parse(r.p).forEach(x=>known.add(x)); }
 let orphans=0; for(const k of ['business-cards','products']) for(const f of fs.readdirSync('$DATA/uploads/'+k)) if(!known.has(k+'/'+f)) orphans++;
 console.log(orphans)" 2>/dev/null)
 check "no orphan files on disk (every file belongs to a lead)" 0 "$ORPHANS"
@@ -201,7 +209,7 @@ post --form-string 'name==HYPERLINK("http://evil.example","click")' --form-strin
      --form-string email=csv@example.com --form-string country=CN --form-string phone="+86 138 0013 8000" \
      --form-string jobTitle="@SUM(1+1)" --form-string "message=-2+3" >/dev/null
 CSV=$(auth "$BASE/api/admin/export")
-has   "CSV starts with the BOM + new reference column" $'^\xEF\xBB\xBF咨询编号,提交时间\\(北京时间\\),状态' "$CSV"
+has   "CSV starts with the BOM + reference column" $'^\xEF\xBB\xBF咨询编号,提交时间\\(北京时间\\),状态' "$CSV"
 has   "formula in name neutralised"            "'=HYPERLINK" "$CSV"
 has   "formula in company neutralised"         "'\\+cmd" "$CSV"
 has   "formula in job title neutralised"       "'@SUM" "$CSV"
@@ -292,7 +300,7 @@ for variant in 0 1; do
   L="$W/legacy$variant"; mk_legacy "$L" $variant
   [ "$variant" == 0 ] && echo "  (legacy DB from the first offline build: leads table only)" || echo "  (legacy DB from the Stage 1 build: with admin tables, user_version 0)"
   start_server DATA_DIR="$L" ADMIN_PASSWORD="$PW"
-  check "  upgraded to schema v2"                   2 "$(sql "$L/leads.db" 'PRAGMA user_version')"
+  check "  upgraded to the current schema (v3)"     3 "$(sql "$L/leads.db" 'PRAGMA user_version')"
   check "  both old leads intact"                   2 "$(sql "$L/leads.db" 'SELECT COUNT(*) FROM leads')"
   check "  old content untouched (name/status/msg)" "王明|已联系|老数据一" "$(sql "$L/leads.db" "SELECT name||'|'||status||'|'||message FROM leads WHERE id LIKE '1111%'")"
   check "  every old lead got a unique reference"  2 "$(sql "$L/leads.db" "SELECT COUNT(DISTINCT reference) FROM leads WHERE reference IS NOT NULL")"
@@ -306,7 +314,7 @@ done
 echo
 echo "== 13. A database from a NEWER build is never opened by older code =="
 mk_legacy "$W/future" 1; node -e "const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync('$W/future/leads.db');d.exec('PRAGMA user_version = 99')" 2>/dev/null
-expect_boot_failure "future schema" "schema v99.*only understands up to v2" DATA_DIR="$W/future" ADMIN_PASSWORD="$PW"
+expect_boot_failure "future schema" "schema v99.*only understands up to v3" DATA_DIR="$W/future" ADMIN_PASSWORD="$PW"
 check "...and the future database was not modified" 99 "$(sql "$W/future/leads.db" 'PRAGMA user_version')"
 
 stop_server

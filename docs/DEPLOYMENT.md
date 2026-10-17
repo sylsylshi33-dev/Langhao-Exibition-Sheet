@@ -114,7 +114,7 @@ sudo /opt/langhao/bin/update-from-git.sh            # builds origin/main and dep
 
 ```bash
 curl -s https://leads.your-company.com/api/healthz      # {"status":"ok"}
-sudo journalctl -u langhao -n 20 --no-pager              # "[startup] data dir: /var/lib/langhao | schema v2 | admin: enabled"
+sudo journalctl -u langhao -n 20 --no-pager              # "[startup] data dir: /var/lib/langhao | schema v3 | admin: enabled"
 sudo systemctl status caddy langhao --no-pager
 ```
 
@@ -124,7 +124,9 @@ Then in a browser:
    `http://…` redirects to `https://…`.
 2. Submit a test enquiry **from your phone on mobile data** with 2–3 photos.
 3. `https://leads.your-company.com/admin` → log in → the lead, its photos,
-   status change, **Download CSV** (open in Excel: Chinese text should be correct).
+   status change, then **Download CSV / Excel / PDF** (open each: Chinese text must be
+   correct, Excel and PDF must show the product photos). Submit one enquiry with
+   2–3 products (photo-only, SKU-only, both) to check the product list.
 4. Reboot test: `sudo reboot`, wait a minute, repeat step 1 — everything must
    come back by itself.
 

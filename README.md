@@ -3,7 +3,9 @@
 A bilingual (中文 / English) lead-capture site for trade shows. Visitors scan a
 QR code on their own phone, leave their contact details, photograph a business
 card and the products they liked, and say what they want. Staff review the
-leads in a password-protected dashboard and export them to CSV.
+leads in a password-protected dashboard and export them to CSV, Excel
+(with the photos embedded) or PDF. An enquiry can list several products, each
+with its own photo(s), SKU, colour, quantity and packaging requirements.
 
 This is **not** an e-commerce site: no prices, no cart, no checkout.
 
@@ -56,7 +58,7 @@ npm run dev            # http://localhost:3000   (admin: /admin)
 
 ```bash
 npx tsc --noEmit && npx eslint src      # types + lint
-npm run test:e2e                         # builds, then ~250 end-to-end checks
+npm run test:e2e                         # builds, then ~375 end-to-end checks
 ```
 
 ### Making a release
@@ -74,6 +76,7 @@ then follow [docs/OPERATIONS.md](docs/OPERATIONS.md#updating-the-site).
 | `DATA_DIR` | production | Absolute path for the database and photos. Must be outside the release folder. |
 | `ADMIN_PASSWORD` | for the dashboard | 12+ characters. Changing it signs everyone out. |
 | `MIN_FREE_DISK_MB` | no (1024) | Below this much free space, submissions are refused and `/api/healthz` reports degraded. |
+| `EXPORT_MAX_IMAGE_MB` | no (60) | Most photo data one Excel/PDF export embeds; further photos are listed by file name and the file says so. |
 | `BACKUP_S3_URI` | no | e.g. `s3://bucket/path` — backups are also synced there. |
 
 `PORT` and `HOSTNAME` are set by the systemd unit (`3000`, `127.0.0.1`).
@@ -86,7 +89,7 @@ then follow [docs/OPERATIONS.md](docs/OPERATIONS.md#updating-the-site).
 | `POST /api/leads` | public | Submit a lead (validated, rate-limited, size-capped) |
 | `GET /api/healthz` | public | `{"status":"ok"}` or 503 `{"status":"degraded","failed":[…]}` |
 | `/admin`, `/admin/leads/:id` | staff | Dashboard, lead detail with photos, status |
-| `/api/admin/*` | staff | Login/logout, leads, photos, CSV export |
+| `/api/admin/*` | staff | Login/logout, leads, photos, CSV / Excel (`/export/xlsx`) / PDF (`/export/pdf`) export |
 
 ## Repository map
 
@@ -94,7 +97,8 @@ then follow [docs/OPERATIONS.md](docs/OPERATIONS.md#updating-the-site).
 src/app/                 pages and API routes
 src/components/enquiry/  the visitor form (EnquiryFlow, screens, i18n, image + upload helpers)
 src/lib/                 db (SQLite + migrations), ingest (validation), adminAuth/adminSession,
-                         config/paths, throttle, disk, time
+                         exportXlsx / exportPdf / exportPhotos / csv, config/paths, throttle, disk, time
+assets/fonts/            Chinese font (subset of Noto Sans SC, OFL) embedded in PDF exports
 src/instrumentation.ts   fail-fast startup checks
 src/proxy.ts             optimistic gate for /admin (real checks are in each handler)
 deploy/                  everything that runs on the server: bootstrap, deploy, rollback,

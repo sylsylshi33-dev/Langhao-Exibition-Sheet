@@ -10,9 +10,17 @@ export const LIMITS = {
   /** Hard cap on the whole multipart body. Browsers compress photos to well under this. */
   maxRequestBytes: 30 * 1024 * 1024,
   maxFileBytes: 12 * 1024 * 1024,
-  maxProductImages: 10,
+  /** Products (cart lines) per enquiry. */
+  maxProducts: 20,
+  /** Photos per product, and in total across the enquiry. */
+  maxPhotosPerProduct: 3,
+  maxProductImages: 20,
   maxProductModels: 20,
   maxModelLength: 60,
+  maxSku: 60,
+  maxColour: 60,
+  maxQuantity: 40,
+  maxPackaging: 500,
   maxShortField: 100,
   maxEmail: 254,
   maxPhone: 40,
@@ -101,7 +109,6 @@ export interface ValidatedFields {
   email: string;
   wechat: string;
   message: string;
-  productModels: string[];
   requestedInformation: RequestType[];
 }
 
@@ -132,8 +139,9 @@ export type FieldsResult =
   | { ok: false; invalid: string[] };
 
 /**
- * `hasBusinessCard` mirrors the form's own rule: a business card photo alone
- * is enough; otherwise name, company, email and country are all required.
+ * The visitor's name is always required (a business card photo never replaces
+ * it). `hasBusinessCard` mirrors the form's other rule: with a card, company,
+ * email and country are optional; without one they are required too.
  */
 export function validateFields(form: FormData, hasBusinessCard: boolean): FieldsResult {
   const invalid: string[] = [];
@@ -162,9 +170,9 @@ export function validateFields(form: FormData, hasBusinessCard: boolean): Fields
     if (value.length > max) invalid.push(field);
   }
 
+  if (!name) invalid.push("name");
   if (!hasBusinessCard) {
     for (const [field, value] of [
-      ["name", name],
       ["company", company],
       ["email", email],
       ["country", country],
@@ -175,17 +183,6 @@ export function validateFields(form: FormData, hasBusinessCard: boolean): Fields
   if (email && !EMAIL_PATTERN.test(email)) invalid.push("email");
 
   if (submissionId && !SUBMISSION_ID_PATTERN.test(submissionId)) invalid.push("clientSubmissionId");
-
-  const models = stringArray(form, "productModels");
-  let productModels: string[] = [];
-  if (models === null || models.length > LIMITS.maxProductModels) {
-    invalid.push("productModels");
-  } else {
-    productModels = [
-      ...new Set(models.map((m) => m.replace(CONTROL_CHARS, "").trim()).filter(Boolean)),
-    ];
-    if (productModels.some((m) => m.length > LIMITS.maxModelLength)) invalid.push("productModels");
-  }
 
   const requested = stringArray(form, "requestedInformation");
   let requestedInformation: RequestType[] = [];
@@ -211,8 +208,116 @@ export function validateFields(form: FormData, hasBusinessCard: boolean): Fields
       email,
       wechat,
       message,
-      productModels,
       requestedInformation,
     },
   };
+}
+
+/* ---------- products ---------- */
+
+export interface ValidatedProduct {
+  sku: string;
+  colour: string;
+  quantity: string;
+  packaging: string;
+  /** How many photos the browser says it attached to this product. */
+  declaredPhotos: number | null;
+}
+
+export type ProductsResult =
+  | { ok: true; products: ValidatedProduct[]; legacy: boolean }
+  | { ok: false; invalid: string[] };
+
+function clean(value: unknown): string | null {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") return null;
+  return value.replace(CONTROL_CHARS, "").trim();
+}
+
+/** Form field that carries the photos of product `index`. */
+export function productPhotoField(index: number): string {
+  return `productPhotos_${index}`;
+}
+
+/**
+ * Reads the product list. The current form sends `products` (a JSON array of
+ * { sku, colour, quantity, packaging, photoCount }) and the photos of product
+ * i under `productPhotos_i`, so each photo is tied to its product by position.
+ *
+ * A form page opened before this release still posts the old shape
+ * (`productImages` + `productModels`); that is accepted as one product so a
+ * visitor mid-form during a deployment is not turned away.
+ *
+ * Whether a product has a photo or a SKU is checked by the caller, which is
+ * the one that sees the files.
+ */
+export function parseProducts(form: FormData): ProductsResult {
+  const raw = form.get("products");
+
+  if (raw === null) {
+    const models = stringArray(form, "productModels");
+    if (models === null || models.length > LIMITS.maxProductModels) {
+      return { ok: false, invalid: ["productModels"] };
+    }
+    const cleaned = [...new Set(models.map((m) => m.replace(CONTROL_CHARS, "").trim()).filter(Boolean))];
+    if (cleaned.some((m) => m.length > LIMITS.maxModelLength)) {
+      return { ok: false, invalid: ["productModels"] };
+    }
+    const hasLegacyPhotos = form.getAll("productImages").some((f) => f instanceof File && f.size > 0);
+    if (cleaned.length === 0 && !hasLegacyPhotos) return { ok: true, products: [], legacy: true };
+    return {
+      ok: true,
+      legacy: true,
+      products: [
+        { sku: cleaned.join(", "), colour: "", quantity: "", packaging: "", declaredPhotos: null },
+      ],
+    };
+  }
+
+  if (typeof raw !== "string") return { ok: false, invalid: ["products"] };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, invalid: ["products"] };
+  }
+  if (!Array.isArray(parsed) || parsed.length > LIMITS.maxProducts) {
+    return { ok: false, invalid: ["products"] };
+  }
+
+  const invalid: string[] = [];
+  const products: ValidatedProduct[] = [];
+  parsed.forEach((entry: unknown, index) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      invalid.push(`products[${index}]`);
+      return;
+    }
+    const o = entry as Record<string, unknown>;
+    const sku = clean(o.sku);
+    const colour = clean(o.colour);
+    const quantity = clean(o.quantity);
+    const packaging = clean(o.packaging);
+    const count = o.photoCount;
+    if (
+      sku === null || colour === null || quantity === null || packaging === null ||
+      sku.length > LIMITS.maxSku ||
+      colour.length > LIMITS.maxColour ||
+      quantity.length > LIMITS.maxQuantity ||
+      packaging.length > LIMITS.maxPackaging ||
+      !(count === undefined || (Number.isInteger(count) && (count as number) >= 0 && (count as number) <= LIMITS.maxPhotosPerProduct))
+    ) {
+      invalid.push(`products[${index}]`);
+      return;
+    }
+    products.push({
+      sku,
+      colour,
+      quantity,
+      packaging,
+      declaredPhotos: typeof count === "number" ? count : null,
+    });
+  });
+
+  if (invalid.length > 0) return { ok: false, invalid };
+  return { ok: true, products, legacy: false };
 }

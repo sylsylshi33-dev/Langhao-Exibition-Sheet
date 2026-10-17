@@ -15,13 +15,16 @@
     "preview": "bash scripts/preview.sh"
   },
   "dependencies": {
+    "exceljs": "4.4.0",
     "next": "16.3.8",
+    "pdfkit": "0.17.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22.20.3",
+    "@types/pdfkit": "^0.17.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

@@ -13,11 +13,12 @@ import {
   EMPTY_DRAFT,
   REQUEST_TYPES,
   type LeadDraft,
+  type ProductDraft,
   type RequestType,
-  type UploadedImage,
 } from "@/lib/types";
 import { LanguageToggle, useI18n } from "./i18n";
-import { MAX_PRODUCT_PHOTOS } from "./image";
+import { MAX_PHOTOS_PER_PRODUCT, MAX_PRODUCTS, MAX_TOTAL_PHOTOS } from "./image";
+import { isBlankProduct, productHasPhotoOrSku, submittableProducts } from "./products";
 import {
   CheckIcon,
   ChatIcon,
@@ -108,13 +109,14 @@ export function LandingScreen({ onStart }: { onStart: () => void }) {
 /* ------------------------------------------------------------------ */
 
 /**
- * True when we have enough to follow up: either a business card was uploaded,
- * or the required manual fields (name, company, email, country) are all filled.
+ * True when we have enough to follow up. The visitor's name is always
+ * required (a business card photo alone never identifies them); beyond that,
+ * either a business card was uploaded or company, email and country are filled.
  */
 export function contactReady(d: LeadDraft): boolean {
+  if (d.name.trim() === "") return false;
   if (d.businessCard) return true;
   return (
-    d.name.trim() !== "" &&
     d.company.trim() !== "" &&
     d.email.trim() !== "" &&
     d.country.trim() !== ""
@@ -140,9 +142,11 @@ export function ContactScreen({
 }) {
   const { t } = useI18n();
   const c = t.contact;
+  const [nameTouched, setNameTouched] = useState(false);
+  const nameMissing = draft.name.trim() === "";
 
   const manualField = (
-    key: "name" | "company" | "jobTitle" | "country" | "phone" | "email" | "wechat",
+    key: "company" | "jobTitle" | "country" | "phone" | "email" | "wechat",
     extra?: { required?: boolean; inputMode?: "tel" | "email"; autoComplete?: string },
   ) => (
     <Field label={c.fields[key]} htmlFor={key} required={extra?.required}>
@@ -162,6 +166,27 @@ export function ContactScreen({
   return (
     <div className="space-y-6">
       <SectionHeading title={c.title} subtitle={c.subtitle} />
+
+      {/* Name comes first and is always required, whichever way contact details are given. */}
+      <Field label={c.fields.name} htmlFor="name" required hint={nameTouched && nameMissing ? undefined : c.nameHint}>
+        <input
+          id="name"
+          className={`${inputClass} ${nameTouched && nameMissing ? "border-rose-400" : ""}`}
+          value={draft.name}
+          maxLength={100}
+          autoComplete="name"
+          aria-invalid={nameTouched && nameMissing}
+          aria-describedby={nameTouched && nameMissing ? "name-error" : undefined}
+          onChange={(e) => onChange({ name: e.target.value })}
+          onBlur={() => setNameTouched(true)}
+          placeholder={c.placeholders.name}
+        />
+        {nameTouched && nameMissing && (
+          <p id="name-error" role="alert" className="text-sm font-medium text-rose-600">
+            {c.nameRequired}
+          </p>
+        )}
+      </Field>
 
       <SegmentedControl<ContactMode>
         value={mode}
@@ -212,7 +237,6 @@ export function ContactScreen({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {manualField("name", { required: true, autoComplete: "name" })}
           {manualField("company", { required: true, autoComplete: "organization" })}
           {manualField("email", {
             required: true,
@@ -235,131 +259,186 @@ export function ContactScreen({
 /* ------------------------------------------------------------------ */
 
 export function ProductsScreen({
-  images,
-  onAdd,
-  onRemove,
-  models,
-  onAddModel,
-  onRemoveModel,
+  products,
+  showErrors,
+  onAddProduct,
+  onRemoveProduct,
+  onChangeProduct,
+  onAddPhotos,
+  onRemovePhoto,
 }: {
-  images: UploadedImage[];
-  onAdd: (files: FileList) => void;
-  onRemove: (id: string) => void;
-  models: string[];
-  onAddModel: (value: string) => void;
-  onRemoveModel: (index: number) => void;
+  products: ProductDraft[];
+  showErrors: boolean;
+  onAddProduct: () => void;
+  onRemoveProduct: (id: string) => void;
+  onChangeProduct: (id: string, patch: Partial<Omit<ProductDraft, "id" | "photos">>) => void;
+  onAddPhotos: (productId: string, files: FileList) => void;
+  onRemovePhoto: (productId: string, imageId: string) => void;
 }) {
   const { t } = useI18n();
   const p = t.products;
-  const [modelInput, setModelInput] = useState("");
-
-  const commitModel = () => {
-    const value = modelInput.trim();
-    if (!value) return;
-    onAddModel(value);
-    setModelInput("");
-  };
+  const totalPhotos = products.reduce((n, item) => n + item.photos.length, 0);
 
   return (
     <div className="space-y-6">
       <SectionHeading title={p.title} subtitle={p.subtitle} />
 
-      {/* Photos */}
-      <div className="space-y-3">
-        <PhotoSourceButtons
-          multiple
-          takeLabel={p.takePhoto}
-          uploadLabel={p.uploadPhoto}
-          onFiles={onAdd}
-        />
-
-        {images.length > 0 && (
-          <>
-            <div className="grid grid-cols-3 gap-3 md:grid-cols-4">
-              {images.map((img) => (
-                <div
-                  key={img.id}
-                  className="relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={img.url}
-                    alt={img.name}
-                    className="h-full w-full object-cover"
-                  />
+      <ol className="space-y-5">
+        {products.map((product, index) => {
+          const invalid =
+            showErrors && !isBlankProduct(product) && !productHasPhotoOrSku(product);
+          const photosFull =
+            product.photos.length >= MAX_PHOTOS_PER_PRODUCT || totalPhotos >= MAX_TOTAL_PHOTOS;
+          const id = product.id;
+          return (
+            <li
+              key={id}
+              id={`product-${id}`}
+              className={`rounded-2xl border p-4 md:p-5 ${
+                invalid ? "border-rose-300 bg-rose-50/40" : "border-slate-200 bg-white"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-slate-900">{p.productN(index + 1)}</h2>
+                {products.length > 1 && (
                   <button
                     type="button"
-                    onClick={() => onRemove(img.id)}
-                    aria-label={p.removePhotoAria}
-                    className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/70 text-white backdrop-blur transition hover:bg-slate-900"
+                    onClick={() => onRemoveProduct(id)}
+                    aria-label={p.removeProductAria(index + 1)}
+                    className="flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-slate-500 transition hover:bg-slate-100 hover:text-rose-600"
                   >
-                    <XIcon className="h-3.5 w-3.5" />
+                    <XIcon className="h-4 w-4" />
+                    {p.removeProduct}
                   </button>
+                )}
+              </div>
+
+              {/* Photo: the label is what the sales team needs */}
+              <div className="mt-3 space-y-3">
+                <p className="rounded-xl bg-slate-50 px-3.5 py-3 text-sm leading-relaxed text-slate-600">
+                  <span className="font-medium text-slate-800">{p.labelInstruction}</span>
+                  <span className="mt-1 block text-xs text-slate-400">{p.photoOrSku}</span>
+                </p>
+
+                {!photosFull && (
+                  <PhotoSourceButtons
+                    multiple
+                    compact
+                    takeLabel={p.takePhoto}
+                    uploadLabel={p.uploadPhoto}
+                    onFiles={(files) => onAddPhotos(id, files)}
+                  />
+                )}
+
+                {product.photos.length > 0 && (
+                  <>
+                    <div className="grid grid-cols-3 gap-3">
+                      {product.photos.map((img) => (
+                        <div
+                          key={img.id}
+                          className="relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={img.url} alt={img.name} className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => onRemovePhoto(id, img.id)}
+                            aria-label={p.removePhotoAria}
+                            className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/70 text-white backdrop-blur transition hover:bg-slate-900"
+                          >
+                            <XIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {p.photoCount(product.photos.length)}
+                      {product.photos.length >= MAX_PHOTOS_PER_PRODUCT
+                        ? ` · ${p.maxPhotos(MAX_PHOTOS_PER_PRODUCT)}`
+                        : totalPhotos >= MAX_TOTAL_PHOTOS
+                          ? ` · ${p.maxTotalPhotos(MAX_TOTAL_PHOTOS)}`
+                          : ""}
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="mt-4 space-y-4">
+                <Field label={p.skuLabel} htmlFor={`sku-${id}`}>
+                  <input
+                    id={`sku-${id}`}
+                    maxLength={60}
+                    className={inputClass}
+                    value={product.sku}
+                    onChange={(e) => onChangeProduct(id, { sku: e.target.value })}
+                    placeholder={p.skuPlaceholder}
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                  />
+                </Field>
+
+                {invalid && (
+                  <p role="alert" className="text-sm font-medium text-rose-600">
+                    {p.needPhotoOrSku}
+                  </p>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label={p.colourLabel} htmlFor={`colour-${id}`} badge={p.recommended}>
+                    <input
+                      id={`colour-${id}`}
+                      maxLength={60}
+                      className={inputClass}
+                      value={product.colour}
+                      onChange={(e) => onChangeProduct(id, { colour: e.target.value })}
+                      placeholder={p.colourPlaceholder}
+                    />
+                  </Field>
+                  <Field label={p.quantityLabel} htmlFor={`quantity-${id}`} badge={p.recommended}>
+                    <input
+                      id={`quantity-${id}`}
+                      maxLength={40}
+                      className={inputClass}
+                      value={product.quantity}
+                      onChange={(e) => onChangeProduct(id, { quantity: e.target.value })}
+                      placeholder={p.quantityPlaceholder}
+                    />
+                  </Field>
                 </div>
-              ))}
-            </div>
-            <p className="text-xs text-slate-400">
-              {p.photoCount(images.length)}
-              {images.length >= MAX_PRODUCT_PHOTOS ? ` · ${p.maxPhotos(MAX_PRODUCT_PHOTOS)}` : ""}
-            </p>
-          </>
-        )}
 
-        {images.length === 0 && (
-          <p className="text-xs text-slate-400">{p.emptyHint}</p>
-        )}
-      </div>
+                <Field label={p.packagingLabel} htmlFor={`packaging-${id}`} badge={p.recommended}>
+                  <textarea
+                    id={`packaging-${id}`}
+                    maxLength={500}
+                    rows={2}
+                    className={textareaClass}
+                    value={product.packaging}
+                    onChange={(e) => onChangeProduct(id, { packaging: e.target.value })}
+                    placeholder={p.packagingPlaceholder}
+                  />
+                </Field>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
 
-      {/* Product model / item numbers */}
-      <div className="space-y-2 border-t border-slate-100 pt-6">
-        <label htmlFor="model" className="block text-sm font-medium text-slate-700">
-          {p.modelsLabel}
-        </label>
-        <p className="text-xs text-slate-400">{p.modelsHint}</p>
-        <div className="flex gap-2">
-          <input
-            id="model"
-            maxLength={60}
-            className={`${inputClass} flex-1`}
-            value={modelInput}
-            onChange={(e) => setModelInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitModel();
-              }
-            }}
-            placeholder={p.modelPlaceholder}
-          />
-          <Button
-            variant="secondary"
-            onClick={commitModel}
-            disabled={!modelInput.trim()}
-            className="shrink-0 px-4 md:h-12"
-          >
-            {t.common.add}
-          </Button>
-        </div>
-        {models.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-1">
-            {models.map((m, i) => (
-              <span
-                key={`${m}-${i}`}
-                className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 py-1 pl-3 pr-1.5 text-sm text-slate-700"
-              >
-                {m}
-                <button
-                  type="button"
-                  onClick={() => onRemoveModel(i)}
-                  aria-label={p.removeModelAria}
-                  className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
-                >
-                  <XIcon className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+      <div className="space-y-2">
+        <Button
+          variant="secondary"
+          fullWidth
+          onClick={onAddProduct}
+          disabled={products.length >= MAX_PRODUCTS}
+        >
+          + {p.addProduct}
+        </Button>
+        <p className="text-center text-xs text-slate-400">
+          {products.length >= MAX_PRODUCTS
+            ? p.maxProducts(MAX_PRODUCTS)
+            : products.length > 0
+              ? p.productCount(products.length, MAX_PRODUCTS)
+              : p.emptyHint}
+        </p>
       </div>
     </div>
   );
@@ -472,6 +551,15 @@ function SummaryRow({
   );
 }
 
+function ProductLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <dt className="shrink-0 text-slate-400">{label}</dt>
+      <dd className="min-w-0 whitespace-pre-wrap break-words">{value}</dd>
+    </div>
+  );
+}
+
 export function SubmitScreen({
   draft,
   goToStep,
@@ -481,6 +569,8 @@ export function SubmitScreen({
 }) {
   const { t } = useI18n();
   const r = t.review;
+
+  const products = submittableProducts(draft.products);
 
   const reachLines = [
     draft.phone && `${r.reachPrefix.phone} ${draft.phone}`,
@@ -524,41 +614,42 @@ export function SubmitScreen({
           {draft.businessCard ? r.uploaded : r.notUploaded}
         </SummaryRow>
 
-        <SummaryRow label={r.rows.photos} editLabel={r.edit} onEdit={() => goToStep("products")}>
-          {draft.productImages.length > 0 ? (
-            <>
-              <span>{r.photoCount(draft.productImages.length)}</span>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {draft.productImages.slice(0, 6).map((img) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={img.id}
-                    src={img.url}
-                    alt={img.name}
-                    className="h-12 w-12 rounded-lg border border-slate-200 object-cover"
-                  />
-                ))}
-              </div>
-            </>
+        <SummaryRow label={r.rows.products} editLabel={r.edit} onEdit={() => goToStep("products")}>
+          {products.length > 0 ? (
+            <ol className="mt-1 space-y-3">
+              {products.map((product, index) => (
+                <li key={product.id} className="rounded-xl bg-slate-50 p-3">
+                  <div className="text-xs font-medium text-slate-500">
+                    {t.products.productN(index + 1)}
+                  </div>
+                  {product.photos.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {product.photos.map((img) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={img.id}
+                          src={img.url}
+                          alt={img.name}
+                          className="h-12 w-12 rounded-lg border border-slate-200 object-cover"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <dl className="mt-2 space-y-0.5 text-sm text-slate-700">
+                    {product.sku && <ProductLine label={t.products.skuLabel} value={product.sku} />}
+                    {product.colour && <ProductLine label={t.products.colourLabel} value={product.colour} />}
+                    {product.quantity && <ProductLine label={t.products.quantityLabel} value={product.quantity} />}
+                    {product.packaging && (
+                      <ProductLine label={t.products.packagingLabel} value={product.packaging} />
+                    )}
+                  </dl>
+                </li>
+              ))}
+            </ol>
           ) : (
             r.notUploaded
           )}
         </SummaryRow>
-
-        {draft.productModels.length > 0 && (
-          <SummaryRow label={r.rows.models} editLabel={r.edit} onEdit={() => goToStep("products")}>
-            <div className="flex flex-wrap gap-1.5">
-              {draft.productModels.map((m, i) => (
-                <span
-                  key={`${m}-${i}`}
-                  className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600"
-                >
-                  {m}
-                </span>
-              ))}
-            </div>
-          </SummaryRow>
-        )}
 
         <SummaryRow label={r.rows.interest} editLabel={r.edit} onEdit={() => goToStep("request")}>
           {draft.requestedInformation.length ? (

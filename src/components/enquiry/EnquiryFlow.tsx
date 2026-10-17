@@ -18,12 +18,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EMPTY_DRAFT,
   type LeadDraft,
+  type ProductDraft,
   type RequestType,
   type UploadedImage,
 } from "@/lib/types";
 import { ChevronLeftIcon } from "./icons";
 import { LanguageToggle, useI18n } from "./i18n";
-import { MAX_PRODUCT_PHOTOS, prepareImage } from "./image";
+import {
+  MAX_PHOTOS_PER_PRODUCT,
+  MAX_PRODUCTS,
+  MAX_TOTAL_PHOTOS,
+  prepareImage,
+} from "./image";
+import { firstInvalidProductId, newProduct, submittableProducts } from "./products";
 import { newClientId, postLead } from "./upload";
 import { Button } from "./ui";
 import {
@@ -71,6 +78,8 @@ export function EnquiryFlow() {
   const [contactMode, setContactMode] = useState<"card" | "manual">("card");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  // Product problems are only shown after the visitor has tried to continue.
+  const [showProductErrors, setShowProductErrors] = useState(false);
   const [referenceId, setReferenceId] = useState("");
   const [uploadPercent, setUploadPercent] = useState(0);
   // Photos are shrunk in the browser before upload; block Next/Submit meanwhile.
@@ -89,7 +98,7 @@ export function EnquiryFlow() {
   });
   useEffect(() => {
     return () => {
-      draftRef.current.productImages.forEach((i) => URL.revokeObjectURL(i.url));
+      draftRef.current.products.forEach((p) => p.photos.forEach((i) => URL.revokeObjectURL(i.url)));
       if (draftRef.current.businessCard) {
         URL.revokeObjectURL(draftRef.current.businessCard.url);
       }
@@ -122,47 +131,64 @@ export function EnquiryFlow() {
     });
   }, []);
 
-  const addProductImages = useCallback(async (files: FileList) => {
-    const room = MAX_PRODUCT_PHOTOS - draftRef.current.productImages.length;
-    const selected = Array.from(files).slice(0, Math.max(0, room));
+  const addProduct = useCallback(() => {
+    setDraft((d) => (d.products.length >= MAX_PRODUCTS ? d : { ...d, products: [...d.products, newProduct()] }));
+  }, []);
+
+  const removeProduct = useCallback((id: string) => {
+    setDraft((d) => {
+      d.products.find((p) => p.id === id)?.photos.forEach((i) => URL.revokeObjectURL(i.url));
+      return { ...d, products: d.products.filter((p) => p.id !== id) };
+    });
+  }, []);
+
+  const updateProduct = useCallback((id: string, patch: Partial<Omit<ProductDraft, "id" | "photos">>) => {
+    setDraft((d) => ({
+      ...d,
+      products: d.products.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+    }));
+  }, []);
+
+  const addProductPhotos = useCallback(async (productId: string, files: FileList) => {
+    const selected = Array.from(files);
     if (selected.length === 0) return;
 
     setProcessing((n) => n + 1);
     try {
       // One at a time: decoding several full-size photos at once can exhaust phone memory.
       for (const file of selected) {
+        const current = draftRef.current.products;
+        const mine = current.find((p) => p.id === productId);
+        const total = current.reduce((n, p) => n + p.photos.length, 0);
+        if (!mine || mine.photos.length >= MAX_PHOTOS_PER_PRODUCT || total >= MAX_TOTAL_PHOTOS) break;
+
         const image = makeImage(await prepareImage(file, "photo"));
-        setDraft((d) =>
-          d.productImages.length >= MAX_PRODUCT_PHOTOS
-            ? d
-            : { ...d, productImages: [...d.productImages, image] },
-        );
+        setDraft((d) => {
+          const target = d.products.find((p) => p.id === productId);
+          const all = d.products.reduce((n, p) => n + p.photos.length, 0);
+          if (!target || target.photos.length >= MAX_PHOTOS_PER_PRODUCT || all >= MAX_TOTAL_PHOTOS) return d;
+          return {
+            ...d,
+            products: d.products.map((p) =>
+              p.id === productId ? { ...p, photos: [...p.photos, image] } : p,
+            ),
+          };
+        });
       }
     } finally {
       setProcessing((n) => n - 1);
     }
   }, []);
 
-  const removeProductImage = useCallback((id: string) => {
-    setDraft((d) => {
-      const img = d.productImages.find((i) => i.id === id);
-      if (img) URL.revokeObjectURL(img.url);
-      return { ...d, productImages: d.productImages.filter((i) => i.id !== id) };
-    });
-  }, []);
-
-  const addProductModel = useCallback((value: string) => {
-    setDraft((d) =>
-      d.productModels.includes(value)
-        ? d
-        : { ...d, productModels: [...d.productModels, value] },
-    );
-  }, []);
-
-  const removeProductModel = useCallback((index: number) => {
+  const removeProductPhoto = useCallback((productId: string, imageId: string) => {
     setDraft((d) => ({
       ...d,
-      productModels: d.productModels.filter((_, i) => i !== index),
+      products: d.products.map((p) => {
+        if (p.id !== productId) return p;
+        const img = p.photos.find((i) => i.id === imageId);
+        if (img) URL.revokeObjectURL(img.url);
+        return { ...p, photos: p.photos.filter((i) => i.id !== imageId) };
+      }),
     }));
   }, []);
 
@@ -177,13 +203,31 @@ export function EnquiryFlow() {
 
   /* ---------- navigation ---------- */
 
-  const goBack = useCallback(() => {
-    setStep((s) => PREVIOUS[s] ?? s);
+  // The product list always opens with one empty row to fill in.
+  const moveTo = useCallback((target: Step) => {
+    if (target === "products") {
+      setDraft((d) => (d.products.length === 0 ? { ...d, products: [newProduct()] } : d));
+    }
+    setStep(target);
   }, []);
 
+  const goBack = useCallback(() => {
+    moveTo(PREVIOUS[step] ?? step);
+  }, [step, moveTo]);
+
   const goNext = useCallback(() => {
-    setStep((s) => NEXT[s] ?? s);
-  }, []);
+    if (step === "products") {
+      const badId = firstInvalidProductId(draftRef.current.products);
+      if (badId) {
+        setShowProductErrors(true);
+        document.getElementById(`product-${badId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      // Untouched rows are dropped; the rest are valid.
+      setDraft((d) => ({ ...d, products: submittableProducts(d.products) }));
+    }
+    moveTo(NEXT[step] ?? step);
+  }, [step, moveTo]);
 
   const handleSubmit = useCallback(async () => {
     if (submitInFlightRef.current) return;
@@ -205,9 +249,24 @@ export function EnquiryFlow() {
     formData.append("wechat", draft.wechat);
     formData.append("message", draft.message);
     formData.append("requestedInformation", JSON.stringify(draft.requestedInformation));
-    formData.append("productModels", JSON.stringify(draft.productModels));
+    // Photos travel under productPhotos_<index>, so each stays with its own product.
+    const products = submittableProducts(draft.products);
+    formData.append(
+      "products",
+      JSON.stringify(
+        products.map((p) => ({
+          sku: p.sku,
+          colour: p.colour,
+          quantity: p.quantity,
+          packaging: p.packaging,
+          photoCount: p.photos.length,
+        })),
+      ),
+    );
     if (draft.businessCard) formData.append("businessCard", draft.businessCard.file);
-    draft.productImages.forEach((img) => formData.append("productImages", img.file));
+    products.forEach((p, index) =>
+      p.photos.forEach((img) => formData.append(`productPhotos_${index}`, img.file)),
+    );
 
     const result = await postLead(formData, (fraction) =>
       setUploadPercent(Math.round(fraction * 100)),
@@ -233,9 +292,10 @@ export function EnquiryFlow() {
   }, [draft, t]);
 
   const restart = useCallback(() => {
-    draft.productImages.forEach((i) => URL.revokeObjectURL(i.url));
+    draft.products.forEach((p) => p.photos.forEach((i) => URL.revokeObjectURL(i.url)));
     if (draft.businessCard) URL.revokeObjectURL(draft.businessCard.url);
     setDraft(EMPTY_DRAFT);
+    setShowProductErrors(false);
     setContactMode("card");
     setReferenceId("");
     setSubmitError("");
@@ -247,7 +307,7 @@ export function EnquiryFlow() {
   /* ---------- full-screen states ---------- */
 
   if (step === "landing") {
-    return <LandingScreen onStart={() => setStep("contact")} />;
+    return <LandingScreen onStart={() => moveTo("contact")} />;
   }
   if (step === "success") {
     return <SuccessScreen referenceId={referenceId} onRestart={restart} />;
@@ -287,12 +347,13 @@ export function EnquiryFlow() {
               )}
               {step === "products" && (
                 <ProductsScreen
-                  images={draft.productImages}
-                  onAdd={addProductImages}
-                  onRemove={removeProductImage}
-                  models={draft.productModels}
-                  onAddModel={addProductModel}
-                  onRemoveModel={removeProductModel}
+                  products={draft.products}
+                  showErrors={showProductErrors}
+                  onAddProduct={addProduct}
+                  onRemoveProduct={removeProduct}
+                  onChangeProduct={updateProduct}
+                  onAddPhotos={addProductPhotos}
+                  onRemovePhoto={removeProductPhoto}
                 />
               )}
               {step === "request" && (
@@ -304,7 +365,7 @@ export function EnquiryFlow() {
                 />
               )}
               {step === "submit" && (
-                <SubmitScreen draft={draft} goToStep={setStep} />
+                <SubmitScreen draft={draft} goToStep={moveTo} />
               )}
             </div>
 
@@ -339,6 +400,9 @@ export function EnquiryFlow() {
             </div>
           </div>
 
+          {step === "products" && showProductErrors && firstInvalidProductId(draft.products) && (
+            <p className="mt-3 px-1 text-center text-xs text-rose-500">{t.products.fixErrors}</p>
+          )}
           {step === "contact" && !canAdvance && (
             <p className="mt-3 px-1 text-center text-xs text-slate-400">
               {t.contact.continueHint}

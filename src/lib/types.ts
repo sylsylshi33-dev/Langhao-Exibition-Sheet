@@ -43,6 +43,17 @@ export interface UploadedImage {
   file: File;
 }
 
+/** One product line in the visitor's enquiry (browser-side, before submit). */
+export interface ProductDraft {
+  id: string;
+  /** Product number / SKU (optional if a photo is attached). */
+  sku: string;
+  colour: string;
+  quantity: string;
+  packaging: string;
+  photos: UploadedImage[];
+}
+
 export interface LeadDraft {
   name: string;
   company: string;
@@ -52,9 +63,7 @@ export interface LeadDraft {
   email: string;
   wechat: string;
   businessCard: UploadedImage | null;
-  productImages: UploadedImage[];
-  /** Model / item numbers the visitor typed in (optional). */
-  productModels: string[];
+  products: ProductDraft[];
   requestedInformation: RequestType[];
   message: string;
 }
@@ -68,11 +77,21 @@ export const EMPTY_DRAFT: LeadDraft = {
   email: "",
   wechat: "",
   businessCard: null,
-  productImages: [],
-  productModels: [],
+  products: [],
   requestedInformation: [],
   message: "",
 };
+
+/** A stored product line of an enquiry. `photos` are relative upload paths. */
+export interface LeadProduct {
+  id: string;
+  position: number;
+  sku: string;
+  colour: string;
+  quantity: string;
+  packaging: string;
+  photos: string[];
+}
 
 /** Shape we would persist (kept here so the admin dashboard can reuse it). */
 export interface Lead {
@@ -87,8 +106,7 @@ export interface Lead {
   email: string;
   wechat: string;
   businessCardImage: string | null;
-  productImages: string[];
-  productModels: string[];
+  products: LeadProduct[];
   requestedInformation: RequestType[];
   message: string;
   status: LeadStatus;

@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dataDir } from "./config";
 import { dbFilePath } from "./paths";
 import { beijingDateStamp } from "./time";
-import type { Lead, LeadStatus, RequestType } from "./types";
+import type { Lead, LeadProduct, LeadStatus, RequestType } from "./types";
 
 /*
  * SQLite database (Node's built-in node:sqlite — nothing native to install).
@@ -21,6 +21,15 @@ import type { Lead, LeadStatus, RequestType } from "./types";
  */
 
 type Migration = (db: DatabaseSync) => void;
+
+function safeStringArray(raw: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 const MIGRATIONS: Migration[] = [
   // v1 — baseline (idempotent, so databases created by earlier builds adopt it).
@@ -114,6 +123,46 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_rate_events ON rate_events (kind, client_key, at);
     `);
   },
+
+  // v3 — several products per enquiry. Additive: leads.product_image_paths and
+  // leads.product_models are left in place (and untouched) so no data is ever
+  // dropped; from here on every read and write goes through lead_products.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS lead_products (
+        id TEXT PRIMARY KEY,
+        lead_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        sku TEXT NOT NULL DEFAULT '',
+        colour TEXT NOT NULL DEFAULT '',
+        quantity TEXT NOT NULL DEFAULT '',
+        packaging TEXT NOT NULL DEFAULT '',
+        photo_paths TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE INDEX IF NOT EXISTS idx_lead_products_lead ON lead_products (lead_id, position);
+    `);
+
+    // Enquiries taken before this release recorded photos and model numbers as
+    // two unrelated lists, so they cannot be split per product honestly. Each
+    // becomes ONE product holding all of its photos, with the model numbers
+    // joined into the SKU field. Nothing is lost and nothing is invented.
+    const legacy = db
+      .prepare(
+        `SELECT l.id, l.product_image_paths, l.product_models FROM leads l
+         WHERE (l.product_image_paths <> '[]' OR l.product_models <> '[]')
+           AND NOT EXISTS (SELECT 1 FROM lead_products p WHERE p.lead_id = l.id)`,
+      )
+      .all() as unknown as { id: string; product_image_paths: string; product_models: string }[];
+    const insert = db.prepare(
+      "INSERT INTO lead_products (id, lead_id, position, sku, photo_paths) VALUES (?, ?, 0, ?, ?)",
+    );
+    for (const row of legacy) {
+      const photos = safeStringArray(row.product_image_paths);
+      const models = safeStringArray(row.product_models);
+      if (photos.length === 0 && models.length === 0) continue;
+      insert.run(randomUUID(), row.id, models.join(", "), JSON.stringify(photos));
+    }
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -183,13 +232,34 @@ interface LeadRow {
   email: string;
   wechat: string;
   business_card_path: string | null;
-  product_image_paths: string;
-  product_models: string;
   requested_information: string;
   message: string;
 }
 
-function rowToLead(row: LeadRow): Lead {
+interface ProductRow {
+  id: string;
+  lead_id: string;
+  position: number;
+  sku: string;
+  colour: string;
+  quantity: string;
+  packaging: string;
+  photo_paths: string;
+}
+
+function rowToProduct(row: ProductRow): LeadProduct {
+  return {
+    id: row.id,
+    position: row.position,
+    sku: row.sku,
+    colour: row.colour,
+    quantity: row.quantity,
+    packaging: row.packaging,
+    photos: safeStringArray(row.photo_paths),
+  };
+}
+
+function rowToLead(row: LeadRow, products: LeadProduct[]): Lead {
   return {
     id: row.id,
     reference: row.reference ?? "",
@@ -203,8 +273,7 @@ function rowToLead(row: LeadRow): Lead {
     email: row.email,
     wechat: row.wechat,
     businessCardImage: row.business_card_path,
-    productImages: JSON.parse(row.product_image_paths) as string[],
-    productModels: JSON.parse(row.product_models) as string[],
+    products,
     requestedInformation: JSON.parse(row.requested_information) as RequestType[],
     message: row.message,
   };
@@ -220,10 +289,18 @@ export interface NewLeadInput {
   email: string;
   wechat: string;
   businessCardPath: string | null;
-  productImagePaths: string[];
-  productModels: string[];
+  products: NewProductInput[];
   requestedInformation: RequestType[];
   message: string;
+}
+
+export interface NewProductInput {
+  sku: string;
+  colour: string;
+  quantity: string;
+  packaging: string;
+  /** Relative paths of already-stored photos, in display order. */
+  photoPaths: string[];
 }
 
 /** Thrown when the same client submission id was already stored (a retried request). */
@@ -249,13 +326,15 @@ export function insertLead(input: NewLeadInput): Lead {
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const reference = newReference();
+    // The enquiry and all of its products are saved together or not at all.
+    db.exec("BEGIN IMMEDIATE");
     try {
       db.prepare(
         `INSERT INTO leads (
           id, created_at, status, reference, client_submission_id,
           name, company, job_title, country, phone, email, wechat,
-          business_card_path, product_image_paths, product_models, requested_information, message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          business_card_path, requested_information, message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         createdAt,
@@ -270,13 +349,33 @@ export function insertLead(input: NewLeadInput): Lead {
         input.email,
         input.wechat,
         input.businessCardPath,
-        JSON.stringify(input.productImagePaths),
-        JSON.stringify(input.productModels),
         JSON.stringify(input.requestedInformation),
         input.message,
       );
+      const insertProduct = db.prepare(
+        `INSERT INTO lead_products (id, lead_id, position, sku, colour, quantity, packaging, photo_paths)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      input.products.forEach((p, position) => {
+        insertProduct.run(
+          randomUUID(),
+          id,
+          position,
+          p.sku,
+          p.colour,
+          p.quantity,
+          p.packaging,
+          JSON.stringify(p.photoPaths),
+        );
+      });
+      db.exec("COMMIT");
       return getLead(id)!;
     } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        /* already rolled back */
+      }
       const message = err instanceof Error ? err.message : "";
       if (message.includes("UNIQUE") && message.includes("client_submission_id")) {
         throw new DuplicateSubmissionError();
@@ -288,25 +387,49 @@ export function insertLead(input: NewLeadInput): Lead {
   throw new Error("could not allocate a unique lead reference");
 }
 
+function productsByLead(leadIds?: string[]): Map<string, LeadProduct[]> {
+  const db = getDb();
+  const rows = (
+    leadIds
+      ? leadIds.flatMap(
+          (leadId) =>
+            db
+              .prepare("SELECT * FROM lead_products WHERE lead_id = ? ORDER BY position")
+              .all(leadId) as unknown as ProductRow[],
+        )
+      : (db
+          .prepare("SELECT * FROM lead_products ORDER BY lead_id, position")
+          .all() as unknown as ProductRow[])
+  );
+  const map = new Map<string, LeadProduct[]>();
+  for (const row of rows) {
+    const list = map.get(row.lead_id) ?? [];
+    list.push(rowToProduct(row));
+    map.set(row.lead_id, list);
+  }
+  return map;
+}
+
 export function listLeads(): Lead[] {
   const rows = getDb()
     .prepare(`SELECT * FROM leads ORDER BY created_at DESC`)
     .all() as unknown as LeadRow[];
-  return rows.map(rowToLead);
+  const products = productsByLead();
+  return rows.map((row) => rowToLead(row, products.get(row.id) ?? []));
 }
 
 export function getLead(id: string): Lead | null {
   const row = getDb().prepare(`SELECT * FROM leads WHERE id = ?`).get(id) as unknown as
     | LeadRow
     | undefined;
-  return row ? rowToLead(row) : null;
+  return row ? rowToLead(row, productsByLead([row.id]).get(row.id) ?? []) : null;
 }
 
 export function findLeadBySubmissionId(clientSubmissionId: string): Lead | null {
   const row = getDb()
     .prepare(`SELECT * FROM leads WHERE client_submission_id = ?`)
     .get(clientSubmissionId) as unknown as LeadRow | undefined;
-  return row ? rowToLead(row) : null;
+  return row ? rowToLead(row, productsByLead([row.id]).get(row.id) ?? []) : null;
 }
 
 export function updateLeadStatus(id: string, status: LeadStatus): Lead | null {

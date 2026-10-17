@@ -37,6 +37,10 @@ cp -R .next/standalone/. "$STAGE/"
 mkdir -p "$STAGE/.next"
 cp -R .next/static "$STAGE/.next/static"
 cp -R public "$STAGE/public"
+# The PDF export reads its Chinese font from assets/fonts at runtime (next to server.js).
+mkdir -p "$STAGE/assets"
+cp -R assets/fonts "$STAGE/assets/fonts"
+[ -s "$STAGE/assets/fonts/NotoSansSC-Regular-subset.otf" ] || { echo "ERROR: PDF font missing from the release" >&2; exit 1; }
 
 # Never ship data, and strip the optional image-optimisation library (nothing
 # here uses next/image; its binaries are built for the machine that ran the build).

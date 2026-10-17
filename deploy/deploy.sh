@@ -80,6 +80,9 @@ if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
   if wait_healthy 45; then
     die "deployment FAILED and was rolled back; the site is running the previous release (data untouched)"
   fi
+  log "If the log says the database is at a newer schema than the previous release understands, this release"
+  log "changed the database layout and the old code cannot read it. Restore the pre-deploy backup (taken above):"
+  log "  sudo $HERE/restore.sh <newest folder under /var/backups/langhao, named pre-deploy>   (see docs/OPERATIONS.md)"
   die "deployment failed AND the rollback is not healthy — investigate immediately: journalctl -u $SERVICE"
 fi
 die "first deployment failed and there is no previous release to roll back to — see: journalctl -u $SERVICE -n 50"

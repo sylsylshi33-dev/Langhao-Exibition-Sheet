@@ -34,6 +34,7 @@ rm -rf .preview && mkdir -p .preview/.next
 cp -R .next/standalone/. .preview/
 cp -R public .preview/public
 cp -R .next/static .preview/.next/static
+mkdir -p .preview/assets && cp -R assets/fonts .preview/assets/fonts   # PDF export font
 rm -rf .preview/data
 
 echo

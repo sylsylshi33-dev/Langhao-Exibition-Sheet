@@ -47,9 +47,14 @@ a few seconds (the form retries automatically, and retries are de-duplicated).
 
 ### Safe-update rules
 
-- Database changes are additive migrations that run automatically on start,
-  and a release **refuses to start** against a newer database than it
-  understands. So rolling the *code* back is always safe.
+- Database changes are additive migrations that run automatically on start
+  (nothing is ever dropped), and a release **refuses to start** against a
+  newer database than it understands, so an old release can never corrupt a
+  newer database. The flip side: **after a release that changed the schema
+  has started once, an older release will not start** until you restore the
+  pre-deploy backup (see [Rolling back across a schema change](#rolling-back-across-a-schema-change)).
+  Release notes say when the schema changed; v3 (several products per
+  enquiry) is one.
 - Never copy files into `/var/lib/langhao` while the service runs.
 - Never put `data/` inside a release (the deploy script refuses to).
 - Keep the admin password out of Git, tickets and chat.
@@ -63,6 +68,23 @@ ls -1t /opt/langhao/releases
 ```
 
 Rollback changes code only. Visitor data is untouched.
+
+### Rolling back across a schema change
+
+`/opt/langhao/bin/rollback.sh` (and the automatic rollback inside `deploy.sh`)
+switch the code back but leave the database as the newer release left it. If
+the older release then refuses to start with
+`database is at schema vN but this build only understands up to vM`, restore
+the snapshot that `deploy.sh` took just before the upgrade:
+
+```bash
+ls -1t /var/backups/langhao | head                       # newest first; the pre-deploy one
+sudo /opt/langhao/bin/restore.sh /var/backups/langhao/<pre-deploy snapshot>
+```
+
+Anything submitted *after* that snapshot is lost by the restore (copy the
+newer `leads.db` and `uploads/` aside first if that matters), so the better
+habit is to roll **forward**: fix the problem and deploy a newer release.
 
 ## Backups
 

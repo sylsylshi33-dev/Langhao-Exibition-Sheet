@@ -65,12 +65,15 @@ export function Field({
   htmlFor,
   required,
   hint,
+  badge,
   children,
 }: {
   label: string;
   htmlFor?: string;
   required?: boolean;
   hint?: string;
+  /** Small tag after the label, e.g. "Recommended". */
+  badge?: string;
   children: ReactNode;
 }) {
   return (
@@ -78,6 +81,11 @@ export function Field({
       <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-700">
         {label}
         {required && <span className="text-rose-500"> *</span>}
+        {badge && (
+          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 align-middle text-[11px] font-medium text-slate-500">
+            {badge}
+          </span>
+        )}
       </label>
       {children}
       {hint && <p className="text-xs text-slate-400">{hint}</p>}
@@ -156,17 +164,23 @@ function FileButton({
   onFiles,
   multiple,
   capture,
+  compact,
   icon,
   children,
 }: {
   onFiles: (files: FileList) => void;
   multiple?: boolean;
   capture?: boolean;
+  compact?: boolean;
   icon: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <label className="flex h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-[15px] font-medium text-slate-800 transition hover:bg-slate-50 active:bg-slate-100 md:h-14 md:text-base">
+    <label
+      className={`flex h-12 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-white font-medium text-slate-800 transition hover:bg-slate-50 active:bg-slate-100 md:h-14 ${
+        compact ? "px-2 text-sm md:px-4 md:text-base" : "px-4 text-[15px] md:text-base"
+      }`}
+    >
       {icon}
       {children}
       <input
@@ -188,25 +202,34 @@ function FileButton({
 export function PhotoSourceButtons({
   onFiles,
   multiple,
+  compact,
   takeLabel,
   uploadLabel,
   className = "",
 }: {
   onFiles: (files: FileList) => void;
   multiple?: boolean;
+  /** Tighter buttons for use inside a card on narrow screens. */
+  compact?: boolean;
   takeLabel: string;
   uploadLabel: string;
   className?: string;
 }) {
   return (
     <div className={`grid grid-cols-2 gap-3 ${className}`}>
-      <FileButton onFiles={onFiles} capture icon={<CameraIcon className="h-5 w-5 text-slate-500" />}>
+      <FileButton
+        onFiles={onFiles}
+        capture
+        compact={compact}
+        icon={<CameraIcon className="h-5 w-5 shrink-0 text-slate-500" />}
+      >
         {takeLabel}
       </FileButton>
       <FileButton
         onFiles={onFiles}
         multiple={multiple}
-        icon={<ImageIcon className="h-5 w-5 text-slate-500" />}
+        compact={compact}
+        icon={<ImageIcon className="h-5 w-5 shrink-0 text-slate-500" />}
       >
         {uploadLabel}
       </FileButton>

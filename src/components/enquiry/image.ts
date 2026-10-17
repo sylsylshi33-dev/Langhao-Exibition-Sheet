@@ -8,7 +8,10 @@
  * original file is used unchanged — the server accepts it too.
  */
 
-export const MAX_PRODUCT_PHOTOS = 10;
+// Must not exceed the server limits in src/lib/ingest.ts (LIMITS).
+export const MAX_PRODUCTS = 20;
+export const MAX_PHOTOS_PER_PRODUCT = 3;
+export const MAX_TOTAL_PHOTOS = 20;
 
 const MAX_PHOTO_EDGE = 1600;
 // Business cards carry small print, so keep more resolution.
