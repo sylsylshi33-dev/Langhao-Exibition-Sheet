@@ -124,14 +124,21 @@ has   "business card stored as uuid + detected extension" '^business-cards/[0-9a
 
 R2=$(post -F name=Bob -F company=B -F email=b@example.com -F country=CN -F "businessCard=@$FX/ok.heic;type=image/heic")
 check "HEIC accepted" 200 "$(echo "$R2" | last)"
-R3=$(post -F name=Carla -F "businessCard=@$FX/ok.jpg;type=image/jpeg")
-check "name + business card is enough (company/email/country optional with a card)" 200 "$(echo "$R3" | last)"
+R3=$(post -F name=Carla -F company="Carla Ltd" -F "businessCard=@$FX/ok.jpg;type=image/jpeg")
+check "company + name + business card is enough (email/country optional with a card)" 200 "$(echo "$R3" | last)"
 check "the name is saved in its own column" "Carla" "$(sql "$DATA/leads.db" "SELECT name FROM leads WHERE id='$(echo "$R3" | body | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).id))")'")"
 check "business card WITHOUT a name -> 400 (a card never identifies the visitor)" 400 "$(post -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | last)"
-has   "...and says the name is the problem" '"fields":\["name"\]' "$(post -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | body)"
+has   "...and names both missing fields (company, name)" '"fields":\["company","name"\]' "$(post -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | body)"
+check "company but no name, with a card -> 400" 400 "$(post -F company=Acme -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | last)"
+has   "...says only the name is missing" '"fields":\["name"\]' "$(post -F company=Acme -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | body)"
+check "name but no company, with a card -> 400" 400 "$(post -F name=Carla -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | last)"
+has   "...says only the company is missing" '"fields":\["company"\]' "$(post -F name=Carla -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | body)"
+check "whitespace-only company with a card -> 400" 400 "$(post -F name=Carla --form-string 'company=   ' -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | last)"
+check "manual entry needs only email + country besides company and name" 200 "$(post -F name=Manny -F company="Manny Co" -F email=m@example.com -F country=CN | last)"
+check "manual entry without email -> 400" 400 "$(post -F name=Manny -F company="Manny Co" -F country=CN | last)"
 check "whitespace-only name with a card -> 400" 400 "$(post --form-string 'name=   ' -F "businessCard=@$FX/ok.jpg;type=image/jpeg" | last)"
 check "name omitted, all other manual fields given -> 400" 400 "$(post -F company=B -F email=b@example.com -F country=CN | last)"
-check "rejected nameless submissions stored nothing" "yes" "$([ "$(sql "$DATA/leads.db" "SELECT COUNT(*) FROM leads WHERE name=''")" == "0" ] && echo yes || echo no)"
+check "rejected submissions stored nothing (no row without a name or company)" "yes" "$([ "$(sql "$DATA/leads.db" "SELECT COUNT(*) FROM leads WHERE name='' OR company=''")" == "0" ] && echo yes || echo no)"
 
 echo
 echo "== 4. Upload validation: nothing bad reaches disk or the database =="

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listLeads } from "@/lib/db";
 import { requireAdminApi } from "@/lib/adminSession";
 import { csvCell } from "@/lib/csv";
-import { displayName } from "@/lib/leadDisplay";
+import { displayCompany, displayName } from "@/lib/leadDisplay";
 import { formatBeijing } from "@/lib/time";
 
 /*
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
         formatBeijing(lead.createdAt),
         lead.status,
         displayName(lead),
-        lead.company,
+        displayCompany(lead),
         lead.jobTitle,
         lead.country,
         lead.phone,

@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { getLead } from "@/lib/db";
 import { requireAdminPage } from "@/lib/adminSession";
-import { displayName } from "@/lib/leadDisplay";
+import { displayCompany, displayName, enquiryTitle } from "@/lib/leadDisplay";
 import { formatBeijing } from "@/lib/time";
 import { StatusSelect } from "./StatusSelect";
 
@@ -31,9 +31,11 @@ export default async function LeadDetailPage({
       </header>
 
       <main className="mx-auto max-w-3xl space-y-6 px-5 py-6">
+        <h1 className="break-words text-xl font-semibold text-slate-900">{enquiryTitle(lead)}</h1>
+
         <Section title="联系信息">
+          <Field label="公司" value={displayCompany(lead)} strong />
           <Field label="姓名" value={displayName(lead)} strong />
-          <Field label="公司" value={lead.company} />
           <Field label="职位" value={lead.jobTitle} />
           <Field label="国家/地区" value={lead.country} />
           <Field label="手机" value={lead.phone} />

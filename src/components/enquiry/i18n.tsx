@@ -68,7 +68,7 @@ const zh = {
     cardHint: "我们会根据名片信息与您联系。如需补充，可切换到「手动填写」。",
     fields: {
       name: "姓名",
-      company: "公司",
+      company: "公司名称",
       email: "邮箱",
       country: "国家 / 地区",
       jobTitle: "职位",
@@ -84,10 +84,11 @@ const zh = {
       phone: "手机号码",
       wechat: "微信号",
     },
-    nameHint: "请先告诉我们您的姓名，之后可上传名片或手动填写其他联系方式。",
+    nameHint: "请先填写公司名称和姓名，之后可上传名片或手动填写其他联系方式。",
     nameRequired: "请填写您的姓名。",
+    companyRequired: "请填写公司名称。",
     manualHint: "带 * 的为必填项。",
-    continueHint: "请先填写姓名；并填写公司、邮箱和国家 / 地区，或改用上传名片。",
+    continueHint: "请先填写公司名称和姓名；并填写邮箱和国家 / 地区，或改用上传名片。",
   },
 
   products: {
@@ -225,7 +226,7 @@ const en: Bundle = {
       "We'll contact you using the details on the card. Switch to “Enter manually” to add more.",
     fields: {
       name: "Full name",
-      company: "Company",
+      company: "Company name",
       email: "Email",
       country: "Country / region",
       jobTitle: "Job title",
@@ -241,10 +242,11 @@ const en: Bundle = {
       phone: "Phone number",
       wechat: "WeChat ID",
     },
-    nameHint: "Tell us your name first, then upload a business card or enter your other contact details.",
+    nameHint: "Tell us your company and your name first, then upload a business card or enter your other contact details.",
     nameRequired: "Please enter your full name.",
+    companyRequired: "Please enter your company name.",
     manualHint: "Fields marked * are required.",
-    continueHint: "Enter your full name, plus company, email and country — or upload a business card instead.",
+    continueHint: "Enter your company name and full name, plus email and country — or upload a business card instead.",
   },
 
   products: {

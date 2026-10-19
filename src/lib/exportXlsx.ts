@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { displayName } from "./leadDisplay";
+import { displayCompany, displayName } from "./leadDisplay";
 import { formatBeijing } from "./time";
 import { PhotoLoader, skippedLabel, type LoadedPhoto } from "./exportPhotos";
 import type { Lead } from "./types";
@@ -98,7 +98,7 @@ export async function buildXlsx(leads: Lead[], now = new Date()): Promise<XlsxRe
       const row = products.addRow({
         reference: lead.reference,
         name: displayName(lead),
-        company: lead.company,
+        company: displayCompany(lead),
         time: formatBeijing(lead.createdAt),
         status: lead.status,
         n: product.position + 1,
@@ -162,7 +162,7 @@ export async function buildXlsx(leads: Lead[], now = new Date()): Promise<XlsxRe
       time: formatBeijing(lead.createdAt),
       status: lead.status,
       name: displayName(lead),
-      company: lead.company,
+      company: displayCompany(lead),
       jobTitle: lead.jobTitle,
       country: lead.country,
       phone: lead.phone,

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { listLeads } from "@/lib/db";
 import { requireAdminPage } from "@/lib/adminSession";
-import { displayName } from "@/lib/leadDisplay";
+import { enquiryTitle } from "@/lib/leadDisplay";
 import { formatBeijing } from "@/lib/time";
 import { LogoutButton } from "./LogoutButton";
 
@@ -57,29 +57,28 @@ export default async function AdminPage() {
         ) : (
           <div>
             {/* column labels (wide screens) */}
-            <div className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] gap-4 px-5 pb-2 text-xs font-medium text-slate-400 md:grid">
-              <span>姓名</span>
-              <span>公司</span>
+            <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_auto] gap-4 px-5 pb-2 text-xs font-medium text-slate-400 md:grid">
+              <span>公司 (姓名)</span>
               <span>需求 / 产品</span>
               <span className="w-16 text-center">状态</span>
             </div>
             <ul className="space-y-3">
               {leads.map((lead) => {
                 const photos = lead.products.reduce((n, p) => n + p.photos.length, 0);
-                const unnamed = !lead.name.trim();
+                const missingIdentity = !lead.name.trim() || !lead.company.trim();
                 return (
                   <li key={lead.id}>
                     <Link
                       href={`/admin/leads/${lead.id}`}
                       className="block rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm"
                     >
-                      <div className="grid gap-x-4 gap-y-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] md:items-center">
+                      <div className="grid gap-x-4 gap-y-2 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_auto] md:items-center">
                         <div className="flex items-start justify-between gap-3 md:block">
                           <p
-                            className={`truncate text-base font-semibold ${unnamed ? "text-slate-400" : "text-slate-900"}`}
+                            className={`truncate text-base font-semibold ${missingIdentity ? "text-slate-500" : "text-slate-900"}`}
                           >
-                            {displayName(lead)}
-                            {unnamed && lead.businessCardImage && (
+                            {enquiryTitle(lead)}
+                            {missingIdentity && lead.businessCardImage && (
                               <span className="ml-2 text-xs font-normal text-slate-400">（见名片）</span>
                             )}
                           </p>
@@ -87,7 +86,6 @@ export default async function AdminPage() {
                             {lead.status}
                           </span>
                         </div>
-                        <p className="truncate text-sm text-slate-500">{lead.company || "—"}</p>
                         <div className="min-w-0 text-sm text-slate-500">
                           <p className="truncate">
                             {lead.requestedInformation.length ? lead.requestedInformation.join("、") : "—"}

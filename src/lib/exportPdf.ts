@@ -1,6 +1,6 @@
 import path from "node:path";
 import PDFDocument from "pdfkit";
-import { displayName } from "./leadDisplay";
+import { displayCompany, displayName, enquiryTitle } from "./leadDisplay";
 import { formatBeijing } from "./time";
 import { PhotoLoader, skippedLabel, type LoadedPhoto } from "./exportPhotos";
 import type { Lead, LeadProduct } from "./types";
@@ -161,7 +161,7 @@ export async function buildPdf(leads: Lead[], now = new Date()): Promise<PdfResu
     const colW = (width - 24) / 2;
     const left: [string, string][] = [
       ["姓名", displayName(lead)],
-      ["公司", lead.company],
+      ["公司", displayCompany(lead)],
       ["职位", lead.jobTitle],
       ["国家/地区", lead.country],
     ];
@@ -187,7 +187,7 @@ export async function buildPdf(leads: Lead[], now = new Date()): Promise<PdfResu
 
     // header bar
     doc.save().roundedRect(MARGIN, y, width, BAR_H, 4).fill(INK).restore();
-    write(`${displayName(lead)}　　${lead.reference}　　${formatBeijing(lead.createdAt)}　　${lead.status}`, MARGIN + 10, y + 6, width - 20, 9.5, "#ffffff");
+    write(`${enquiryTitle(lead)}　　${lead.reference}　　${formatBeijing(lead.createdAt)}　　${lead.status}`, MARGIN + 10, y + 6, width - 20, 9.5, "#ffffff");
     y += BAR_H + 8;
 
     // contact details
@@ -213,7 +213,7 @@ export async function buildPdf(leads: Lead[], now = new Date()): Promise<PdfResu
       // Products that run onto a new page say whose they are.
       if (ensure(block.height + 6 + 16)) {
         write(
-          `${lead.reference}　${[displayName(lead), lead.company].filter(Boolean).join(" · ")}（续）`,
+          `${lead.reference}　${enquiryTitle(lead)}（续）`,
           MARGIN,
           y,
           width,

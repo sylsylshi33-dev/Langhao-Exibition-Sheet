@@ -114,11 +114,13 @@ has   "list still shows all 5" "共 5 条" "$(page $BASE/admin)"
 
 ###############################################################################
 ADMIN_LIST=$(page $BASE/admin)
-has   "admin list has a dedicated 姓名 column header" "姓名.*公司.*需求 / 产品.*状态" "$ADMIN_LIST"
-has   "admin list shows a saved name prominently" "王明" "$ADMIN_LIST"
-has   "historical enquiry with no name shows 未提供 (and points to its card)" "未提供.*（见名片）" "$ADMIN_LIST"
+has   "admin list has a combined 公司 (姓名) column header" "公司 \(姓名\).*需求 / 产品.*状态" "$ADMIN_LIST"
+has   "admin list title is Company (Person) for a named enquiry" "环球工业 \(王明\)" "$ADMIN_LIST"
+has   "historical enquiry with neither company nor name shows 未提供 (未提供) and points to its card" "未提供 \(未提供\).*（见名片）" "$ADMIN_LIST"
 check "...the empty name was NOT replaced in the database (nothing inferred or invented)" "" "$(sql "$DATA/leads.db" "SELECT name FROM leads WHERE id LIKE '5555%'")"
-has   "detail page of that enquiry says 未提供" "姓名.*未提供" "$(page "$BASE/admin/leads/55555555-aaaa-bbbb-cccc-000000000005")"
+D5=$(page "$BASE/admin/leads/55555555-aaaa-bbbb-cccc-000000000005")
+has   "detail page of that enquiry says 未提供 for company and name" "公司.*未提供.*姓名.*未提供" "$D5"
+has   "detail page title for a named enquiry is Company (Person)" "环球工业 \(王明\)" "$(page "$BASE/admin/leads/11111111-aaaa-bbbb-cccc-000000000001")"
 
 echo
 echo "== 3. Multi-product submission: association, optional fields, mixed photo/SKU =="
@@ -163,6 +165,7 @@ echo "== 4. Per-product validation (server side) =="
 ROWS=$(lead_count); PRODS=$(product_count); FILES=$(files_in_uploads)
 rep() { head -c "$1" /dev/zero | tr '\0' a; }
 V() { post -F name=V -F company=V -F email=v@example.com -F country=CN "$@"; }
+check "an enquiry with products but no company -> 400" 400 "$(post -F name=V -F email=v@example.com -F country=CN --form-string 'products=[{"sku":"A","photoCount":0}]' | last)"
 check "an enquiry with products but no name -> 400" 400 "$(post -F company=V -F email=v@example.com -F country=CN --form-string 'products=[{"sku":"A","photoCount":0}]' | last)"
 check "...even with a business card and a valid product" 400 "$(post -F "businessCard=@$FX/label-d.png;type=image/png" --form-string 'products=[{"sku":"A","photoCount":0}]' | last)"
 check "product with neither photo nor SKU -> 400" 400 "$(V --form-string 'products=[{"sku":"A","photoCount":0},{"sku":"","colour":"red","photoCount":0}]' | last)"
@@ -219,7 +222,7 @@ done
 
 CSV=$(auth "$BASE/api/admin/export")
 check "CSV: one row per product (+1 for each enquiry without products) + header" "$(sql "$DATA/leads.db" "SELECT (SELECT COUNT(*) FROM lead_products)+(SELECT COUNT(*) FROM leads WHERE id NOT IN (SELECT lead_id FROM lead_products))+1")" "$(printf '%s\n' "$CSV" | node "$REPO/tests/helpers/count-csv-rows.cjs")"
-has   "CSV: the historical enquiry without a name is exported as 未提供" "LC-20260922-OLD05,[^,]*,[^,]*,未提供," "$CSV"
+has   "CSV: the historical enquiry without a name is exported as 未提供" "LC-20260922-OLD05,[^,]*,[^,]*,未提供,未提供," "$CSV"
 has   "CSV header has the product columns" "产品序号,产品编号/SKU,颜色,数量,包装要求,产品照片" "$CSV"
 has   "CSV keeps the enquiry reference on every product row of a multi-product enquiry" "$REF.*RX-200" "$(echo "$CSV" | tr -d '\r' | tr '\n' ' ')"
 check "CSV: the 3-product enquiry appears on exactly 3 rows" 3 "$(printf '%s' "$CSV" | grep -c "$REF")"
@@ -243,6 +246,7 @@ check "xlsx: opens and parses with a spreadsheet reader" "yes" "$([ -s "$W/xlsx.
 xq() { node -e "const j=JSON.parse(require('fs').readFileSync('$W/xlsx.json','utf8'));console.log(eval(process.argv[1]))" "$1"; }
 check "xlsx: sheets are 产品, 咨询, 说明" "产品,咨询,说明" "$(xq "j.sheets.map(s=>s.name).join(',')")"
 check "xlsx: the nameless historical enquiry shows 未提供 in the 姓名 column" "未提供" "$(xq "j.sheets.find(s=>s.name=='咨询').rows.find(r=>r[0]=='LC-20260922-OLD05')[3]")"
+check "xlsx: ...and 未提供 in the 公司 column" "未提供" "$(xq "j.sheets.find(s=>s.name=='咨询').rows.find(r=>r[0]=='LC-20260922-OLD05')[4]")"
 check "xlsx: a named enquiry keeps its name" "王明" "$(xq "j.sheets.find(s=>s.name=='咨询').rows.find(r=>r[0]=='LC-20260918-OLD01')[3]")"
 check "xlsx: 咨询 sheet has one row per enquiry (+header)" "$((TOTAL_LEADS+1))" "$(xq "j.sheets.find(s=>s.name=='咨询').rows.length")"
 check "xlsx: 产品 sheet has one row per product (+header)" "$((TOTAL_PRODS+1))" "$(xq "j.sheets.find(s=>s.name=='产品').rows.length")"

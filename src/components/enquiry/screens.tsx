@@ -109,15 +109,15 @@ export function LandingScreen({ onStart }: { onStart: () => void }) {
 /* ------------------------------------------------------------------ */
 
 /**
- * True when we have enough to follow up. The visitor's name is always
- * required (a business card photo alone never identifies them); beyond that,
- * either a business card was uploaded or company, email and country are filled.
+ * True when we have enough to follow up. The company name and the visitor's
+ * own name are always required (a business card photo alone never identifies
+ * them); beyond that, either a business card was uploaded or email and country
+ * are filled.
  */
 export function contactReady(d: LeadDraft): boolean {
-  if (d.name.trim() === "") return false;
+  if (d.company.trim() === "" || d.name.trim() === "") return false;
   if (d.businessCard) return true;
   return (
-    d.company.trim() !== "" &&
     d.email.trim() !== "" &&
     d.country.trim() !== ""
   );
@@ -143,10 +143,12 @@ export function ContactScreen({
   const { t } = useI18n();
   const c = t.contact;
   const [nameTouched, setNameTouched] = useState(false);
+  const [companyTouched, setCompanyTouched] = useState(false);
   const nameMissing = draft.name.trim() === "";
+  const companyMissing = draft.company.trim() === "";
 
   const manualField = (
-    key: "company" | "jobTitle" | "country" | "phone" | "email" | "wechat",
+    key: "jobTitle" | "country" | "phone" | "email" | "wechat",
     extra?: { required?: boolean; inputMode?: "tel" | "email"; autoComplete?: string },
   ) => (
     <Field label={c.fields[key]} htmlFor={key} required={extra?.required}>
@@ -167,7 +169,28 @@ export function ContactScreen({
     <div className="space-y-6">
       <SectionHeading title={c.title} subtitle={c.subtitle} />
 
-      {/* Name comes first and is always required, whichever way contact details are given. */}
+      {/* Company name and the visitor's own name come first and are always required,
+          whichever way the rest of the contact details are given. */}
+      <Field label={c.fields.company} htmlFor="company" required>
+        <input
+          id="company"
+          className={`${inputClass} ${companyTouched && companyMissing ? "border-rose-400" : ""}`}
+          value={draft.company}
+          maxLength={100}
+          autoComplete="organization"
+          aria-invalid={companyTouched && companyMissing}
+          aria-describedby={companyTouched && companyMissing ? "company-error" : undefined}
+          onChange={(e) => onChange({ company: e.target.value })}
+          onBlur={() => setCompanyTouched(true)}
+          placeholder={c.placeholders.company}
+        />
+        {companyTouched && companyMissing && (
+          <p id="company-error" role="alert" className="text-sm font-medium text-rose-600">
+            {c.companyRequired}
+          </p>
+        )}
+      </Field>
+
       <Field label={c.fields.name} htmlFor="name" required hint={nameTouched && nameMissing ? undefined : c.nameHint}>
         <input
           id="name"
@@ -237,7 +260,6 @@ export function ContactScreen({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {manualField("company", { required: true, autoComplete: "organization" })}
           {manualField("email", {
             required: true,
             inputMode: "email",
@@ -584,20 +606,10 @@ export function SubmitScreen({
 
       <dl className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200">
         <SummaryRow label={r.rows.contact} editLabel={r.edit} onEdit={() => goToStep("contact")}>
-          {draft.name || draft.company ? (
-            <>
-              <span className="font-medium text-slate-900">
-                {draft.name || r.none}
-              </span>
-              {(draft.company || draft.jobTitle) && (
-                <div className="mt-0.5 text-xs text-slate-400">
-                  {[draft.company, draft.jobTitle].filter(Boolean).join(" · ")}
-                </div>
-              )}
-            </>
-          ) : (
-            r.none
-          )}
+          <span className="font-medium text-slate-900">
+            {draft.company || r.none} ({draft.name || r.none})
+          </span>
+          {draft.jobTitle && <div className="mt-0.5 text-xs text-slate-400">{draft.jobTitle}</div>}
         </SummaryRow>
 
         {draft.country && (

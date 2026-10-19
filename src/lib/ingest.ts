@@ -139,9 +139,10 @@ export type FieldsResult =
   | { ok: false; invalid: string[] };
 
 /**
- * The visitor's name is always required (a business card photo never replaces
- * it). `hasBusinessCard` mirrors the form's other rule: with a card, company,
- * email and country are optional; without one they are required too.
+ * The visitor's company name and their own name are always required (a
+ * business card photo never replaces them). `hasBusinessCard` mirrors the
+ * form's other rule: with a card, email and country are optional; without one
+ * they are required too.
  */
 export function validateFields(form: FormData, hasBusinessCard: boolean): FieldsResult {
   const invalid: string[] = [];
@@ -170,10 +171,10 @@ export function validateFields(form: FormData, hasBusinessCard: boolean): Fields
     if (value.length > max) invalid.push(field);
   }
 
+  if (!company) invalid.push("company");
   if (!name) invalid.push("name");
   if (!hasBusinessCard) {
     for (const [field, value] of [
-      ["company", company],
       ["email", email],
       ["country", country],
     ] as const) {
